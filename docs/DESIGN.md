@@ -57,8 +57,26 @@ When the patch stack no longer applies cleanly (base ref moved upstream, a patch
 After reconciling the patch stack, `git_branch` pushes the resulting branch to the remote.
 Because the stack is rewritten on each apply, this is a force-push.
 
-## Open questions
+## Remote patch sources
 
-- Exact shape of the `git_patch` remote-source attribute (how a GitHub commit/PR reference is expressed).
-- Import behavior for existing branches that already have divergent commits on top of their base ref.
-- Whether local-clone workdirs persist between applies or are ephemeral per-run.
+A `git_patch` sourced from a host uses a host-specific nested block rather than a generic URL string or flat type/ref attributes, e.g.:
+
+```hcl
+resource "git_patch" "example" {
+  github {
+    pr = 123
+    # or: commit = "abc123"
+  }
+}
+```
+
+This keeps validation host-aware and type-safe, and lets each host expose its own optional fields (e.g. a GitLab MR needing different fields than a GitHub PR) without overloading a shared schema. Adding a new host means adding a new block type.
+
+## Import behavior
+
+Import populates state with whatever is actually observed on the remote (base ref, resolved ref), without attempting to map existing commits to a patch stack. It does not fail or attempt to synthesize `git_patch` resources for divergent commits.
+The user's config declares the intended patch stack; the following `terraform plan` shows the normal divergence between observed and declared state, reconciled on the next apply like any other drift. This matches standard Terraform import semantics: import populates state, config decides the target.
+
+## Workdir lifecycle
+
+Local-clone workdirs are ephemeral: a fresh clone into a temp directory per apply/read, discarded afterward. No persisted workdir, no reuse-across-runs cache, no cleanup or concurrent-run collision logic. Simpler and avoids stale-state bugs, at the cost of re-cloning on every run.
