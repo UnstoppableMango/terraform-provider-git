@@ -5,7 +5,7 @@
   version,
 }:
 buildGoApplication {
-  pname = "";
+  pname = "terraform-provider-git";
   inherit version;
 
   src = lib.cleanSource ../.;
