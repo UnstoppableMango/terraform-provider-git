@@ -2,6 +2,7 @@
   buildGoApplication,
   lib,
   ginkgo,
+  git,
   version,
 }:
 buildGoApplication {
@@ -11,7 +12,10 @@ buildGoApplication {
   src = lib.cleanSource ../.;
   modules = ./gomod2nix.toml;
 
-  nativeCheckInputs = [ ginkgo ];
+  nativeCheckInputs = [
+    ginkgo
+    git
+  ];
 
   checkPhase = ''
     ginkgo run ./...

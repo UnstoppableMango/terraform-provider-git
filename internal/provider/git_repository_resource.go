@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -9,17 +10,22 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+
+	"github.com/UnstoppableMango/terraform-provider-git/internal/git"
 )
 
 // Ensure the implementation satisfies the desired interfaces.
 var _ resource.Resource = &gitRepositoryResource{}
 var _ resource.ResourceWithImportState = &gitRepositoryResource{}
+var _ resource.ResourceWithConfigure = &gitRepositoryResource{}
 
 // gitRepositoryResource references an existing repository. It is
 // reference-only: this provider never creates or deletes repositories on
 // the host. It resolves connection details (URL, host type, auth) used by
 // other resources.
-type gitRepositoryResource struct{}
+type gitRepositoryResource struct {
+	client git.Client
+}
 
 // gitRepositoryResourceModel describes the resource data model.
 type gitRepositoryResourceModel struct {
@@ -42,6 +48,33 @@ func NewGitRepositoryResource() resource.Resource {
 
 func (r *gitRepositoryResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_repository"
+}
+
+func (r *gitRepositoryResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	if req.ProviderData == nil {
+		return
+	}
+
+	data, ok := req.ProviderData.(*providerData)
+	if !ok {
+		resp.Diagnostics.AddError(
+			"Unexpected Resource Configure Type",
+			fmt.Sprintf("Expected *providerData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
+		)
+		return
+	}
+
+	r.client = data.GitClient
+}
+
+// authFromModel converts a gitRepositoryAuthModel into a git.Auth, treating
+// a nil or unset token as unauthenticated.
+func authFromModel(m *gitRepositoryAuthModel) git.Auth {
+	if m == nil || m.Token.IsNull() || m.Token.IsUnknown() {
+		return git.Auth{}
+	}
+
+	return git.Auth{Token: m.Token.ValueString()}
 }
 
 func (r *gitRepositoryResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
@@ -86,6 +119,13 @@ func (r *gitRepositoryResource) Create(ctx context.Context, req resource.CreateR
 		return
 	}
 
+	if r.client != nil {
+		if _, err := r.client.LsRemote(ctx, plan.Url.ValueString(), authFromModel(plan.Auth)); err != nil {
+			resp.Diagnostics.AddError("Unable to Reach Repository", err.Error())
+			return
+		}
+	}
+
 	plan.Id = plan.Url
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
@@ -102,6 +142,13 @@ func (r *gitRepositoryResource) Read(ctx context.Context, req resource.ReadReque
 		return
 	}
 
+	if r.client != nil {
+		if _, err := r.client.LsRemote(ctx, state.Url.ValueString(), authFromModel(state.Auth)); err != nil {
+			resp.Diagnostics.AddError("Unable to Reach Repository", err.Error())
+			return
+		}
+	}
+
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -114,6 +161,13 @@ func (r *gitRepositoryResource) Update(ctx context.Context, req resource.UpdateR
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	if resp.Diagnostics.HasError() {
 		return
+	}
+
+	if r.client != nil {
+		if _, err := r.client.LsRemote(ctx, plan.Url.ValueString(), authFromModel(plan.Auth)); err != nil {
+			resp.Diagnostics.AddError("Unable to Reach Repository", err.Error())
+			return
+		}
 	}
 
 	plan.Id = plan.Url
