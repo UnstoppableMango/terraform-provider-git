@@ -19,9 +19,9 @@ check lint:
 format fmt:
 	nix fmt
 
-tidy: go.sum
+tidy: go.sum nix/gomod2nix.toml
 
-go.sum: go.mod ${GO_SRC} nix/gomod2nix.toml
+go.sum: go.mod ${GO_SRC}
 	$(GO) mod tidy
 
 nix/gomod2nix.toml: go.sum ${GO_SRC}
