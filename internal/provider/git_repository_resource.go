@@ -69,12 +69,12 @@ func (r *gitRepositoryResource) Configure(_ context.Context, req resource.Config
 
 // authFromModel converts a gitRepositoryAuthModel into a git.Auth, treating
 // a nil or unset token as unauthenticated.
-func authFromModel(m *gitRepositoryAuthModel) git.Auth {
+func authFromModel(host types.String, m *gitRepositoryAuthModel) git.Auth {
 	if m == nil || m.Token.IsNull() || m.Token.IsUnknown() {
 		return git.Auth{}
 	}
 
-	return git.Auth{Token: m.Token.ValueString()}
+	return git.Auth{Token: m.Token.ValueString(), Host: host.ValueString()}
 }
 
 // verifyReachable checks that url is reachable with auth via the configured
@@ -131,7 +131,7 @@ func (r *gitRepositoryResource) Create(ctx context.Context, req resource.CreateR
 		return
 	}
 
-	if err := r.verifyReachable(ctx, plan.Url.ValueString(), authFromModel(plan.Auth)); err != nil {
+	if err := r.verifyReachable(ctx, plan.Url.ValueString(), authFromModel(plan.Host, plan.Auth)); err != nil {
 		resp.Diagnostics.AddError("Unable to Reach Repository", err.Error())
 		return
 	}
@@ -156,7 +156,7 @@ func (r *gitRepositoryResource) Read(ctx context.Context, req resource.ReadReque
 	// Create/Update, Read runs on every plan/apply/destroy (as the refresh
 	// step), and destroy refreshes state via Read before it can proceed. A
 	// transient outage or revoked token must not block terraform destroy.
-	if err := r.verifyReachable(ctx, state.Url.ValueString(), authFromModel(state.Auth)); err != nil {
+	if err := r.verifyReachable(ctx, state.Url.ValueString(), authFromModel(state.Host, state.Auth)); err != nil {
 		resp.Diagnostics.AddWarning("Unable to Reach Repository", err.Error())
 	}
 
@@ -174,7 +174,7 @@ func (r *gitRepositoryResource) Update(ctx context.Context, req resource.UpdateR
 		return
 	}
 
-	if err := r.verifyReachable(ctx, plan.Url.ValueString(), authFromModel(plan.Auth)); err != nil {
+	if err := r.verifyReachable(ctx, plan.Url.ValueString(), authFromModel(plan.Host, plan.Auth)); err != nil {
 		resp.Diagnostics.AddError("Unable to Reach Repository", err.Error())
 		return
 	}

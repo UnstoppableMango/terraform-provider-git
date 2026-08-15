@@ -8,6 +8,19 @@ import "context"
 // repository. An empty Auth means an unauthenticated request.
 type Auth struct {
 	Token string // empty means unauthenticated
+	Host  string // host type, e.g. "github" or "gitlab"; "" for unknown/generic
+}
+
+// Username returns the conventional HTTP basic-auth username to pair with a
+// token for the given host type. Backends should use this instead of
+// hardcoding a single convention, since it differs per host.
+func Username(host string) string {
+	switch host {
+	case "gitlab":
+		return "oauth2"
+	default:
+		return "x-access-token"
+	}
 }
 
 // Ref represents a single ref reported by a remote repository.

@@ -28,6 +28,10 @@ Dev shell is Nix-managed (`flake.nix`, direnv auto-loads it via `.envrc`). Every
 
 ## Current state vs. design
 
-Only `git_repository` exists so far (`internal/provider/git_repository_resource.go`). Create/Update mirror `url` into `id` and verify the repository is reachable via `LsRemote` on the configured `git_implementation` backend, hard-erroring on failure. Read re-verifies reachability but only warns on failure, so a transient outage or revoked token doesn't block refresh or `terraform destroy`. Delete does nothing. Auth is resolved from the `auth.token` attribute and passed through to the backend (go-git or exec) — see `internal/git`.
+Only `git_repository` exists so far (`internal/provider/git_repository_resource.go`).
+Create/Update mirror `url` into `id` and verify the repository is reachable via `LsRemote` on the configured `git_implementation` backend, hard-erroring on failure.
+Read re-verifies reachability but only warns on failure, so a transient outage or revoked token doesn't block refresh or `terraform destroy`.
+Delete does nothing.
+Auth is resolved from the `auth.token` attribute and passed through to the backend (go-git or exec), see `internal/git`.
 
 Not yet implemented (per DESIGN.md): `git_branch`, `git_patch`, the pluggable local-clone/hosting-API access backends, the pluggable go-git/shell-git backend, and GitHub/GitLab auth resolution. When implementing these, follow the terminology and semantics already fixed in DESIGN.md (base ref, resolved ref, patch stack, force-push-on-apply, ephemeral per-run workdirs) rather than inventing new ones.

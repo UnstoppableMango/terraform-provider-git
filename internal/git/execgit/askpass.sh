@@ -1,5 +1,5 @@
 #!/bin/sh
 case "$1" in
-	Username*) echo "x-access-token" ;;
+	Username*) echo "$GIT_PROVIDER_USERNAME" ;;
 	*) echo "$GIT_PROVIDER_TOKEN" ;;
 esac

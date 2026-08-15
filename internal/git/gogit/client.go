@@ -54,7 +54,7 @@ func authMethod(auth providergit.Auth) transport.AuthMethod {
 	}
 
 	return &http.BasicAuth{
-		Username: "x-access-token",
+		Username: providergit.Username(auth.Host),
 		Password: auth.Token,
 	}
 }
