@@ -29,7 +29,10 @@ func (c *client) LsRemote(ctx context.Context, url string, auth providergit.Auth
 		URLs: []string{url},
 	})
 
-	refs, err := remote.List(&git.ListOptions{Auth: authMethod(auth)})
+	refs, err := remote.ListContext(ctx, &git.ListOptions{
+		Auth:          authMethod(auth),
+		PeelingOption: git.AppendPeeled,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("ls-remote %s: %w", url, err)
 	}

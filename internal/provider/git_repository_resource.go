@@ -77,6 +77,18 @@ func authFromModel(m *gitRepositoryAuthModel) git.Auth {
 	return git.Auth{Token: m.Token.ValueString()}
 }
 
+// verifyReachable checks that url is reachable with auth via the configured
+// client, treating a nil client (Configure never called) as always
+// reachable. Callers decide how to surface a non-nil error.
+func (r *gitRepositoryResource) verifyReachable(ctx context.Context, url string, auth git.Auth) error {
+	if r.client == nil {
+		return nil
+	}
+
+	_, err := r.client.LsRemote(ctx, url, auth)
+	return err
+}
+
 func (r *gitRepositoryResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "References an existing repository. Reference-only: this provider never creates or deletes repositories on the host. It resolves connection details (URL, host type, auth) used by other resources.",
@@ -119,11 +131,9 @@ func (r *gitRepositoryResource) Create(ctx context.Context, req resource.CreateR
 		return
 	}
 
-	if r.client != nil {
-		if _, err := r.client.LsRemote(ctx, plan.Url.ValueString(), authFromModel(plan.Auth)); err != nil {
-			resp.Diagnostics.AddError("Unable to Reach Repository", err.Error())
-			return
-		}
+	if err := r.verifyReachable(ctx, plan.Url.ValueString(), authFromModel(plan.Auth)); err != nil {
+		resp.Diagnostics.AddError("Unable to Reach Repository", err.Error())
+		return
 	}
 
 	plan.Id = plan.Url
@@ -142,11 +152,12 @@ func (r *gitRepositoryResource) Read(ctx context.Context, req resource.ReadReque
 		return
 	}
 
-	if r.client != nil {
-		if _, err := r.client.LsRemote(ctx, state.Url.ValueString(), authFromModel(state.Auth)); err != nil {
-			resp.Diagnostics.AddError("Unable to Reach Repository", err.Error())
-			return
-		}
+	// A reachability failure here is a warning, not a hard error: unlike
+	// Create/Update, Read runs on every plan/apply/destroy (as the refresh
+	// step), and destroy refreshes state via Read before it can proceed. A
+	// transient outage or revoked token must not block terraform destroy.
+	if err := r.verifyReachable(ctx, state.Url.ValueString(), authFromModel(state.Auth)); err != nil {
+		resp.Diagnostics.AddWarning("Unable to Reach Repository", err.Error())
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
@@ -163,11 +174,9 @@ func (r *gitRepositoryResource) Update(ctx context.Context, req resource.UpdateR
 		return
 	}
 
-	if r.client != nil {
-		if _, err := r.client.LsRemote(ctx, plan.Url.ValueString(), authFromModel(plan.Auth)); err != nil {
-			resp.Diagnostics.AddError("Unable to Reach Repository", err.Error())
-			return
-		}
+	if err := r.verifyReachable(ctx, plan.Url.ValueString(), authFromModel(plan.Auth)); err != nil {
+		resp.Diagnostics.AddError("Unable to Reach Repository", err.Error())
+		return
 	}
 
 	plan.Id = plan.Url

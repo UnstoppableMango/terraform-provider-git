@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 
 	providergit "github.com/UnstoppableMango/terraform-provider-git/internal/git"
 )
@@ -17,29 +18,39 @@ import (
 //go:embed askpass.sh
 var askpassScript []byte
 
-// client is a git.Client implementation backed by the git binary.
-type client struct{}
+// client is a git.Client implementation backed by the git binary. gitPath and
+// the askpass script are resolved/written at most once per client instance
+// and reused across calls, since both are invariant for the process's
+// lifetime.
+type client struct {
+	gitPath string
+	gitErr  error
+
+	askpassOnce sync.Once
+	askpassPath string
+	askpassErr  error
+}
 
 // New returns a git.Client that shells out to the git binary found on PATH.
 func New() providergit.Client {
-	return &client{}
+	c := &client{}
+	c.gitPath, c.gitErr = exec.LookPath("git")
+	return c
 }
 
 func (c *client) LsRemote(ctx context.Context, url string, auth providergit.Auth) ([]providergit.Ref, error) {
-	gitPath, err := exec.LookPath("git")
-	if err != nil {
-		return nil, fmt.Errorf("git binary not found: %w", err)
+	if c.gitErr != nil {
+		return nil, fmt.Errorf("git binary not found: %w", c.gitErr)
 	}
 
-	cmd := exec.CommandContext(ctx, gitPath, "ls-remote", url)
+	cmd := exec.CommandContext(ctx, c.gitPath, "ls-remote", "--", url)
 	env := append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 
 	if auth.Token != "" {
-		scriptPath, cleanup, err := writeAskpassScript()
+		scriptPath, err := c.askpassScriptPath()
 		if err != nil {
 			return nil, fmt.Errorf("preparing credentials: %w", err)
 		}
-		defer cleanup()
 
 		env = append(env,
 			"GIT_ASKPASS="+scriptPath,
@@ -60,28 +71,37 @@ func (c *client) LsRemote(ctx context.Context, url string, auth providergit.Auth
 	return parseLsRemote(stdout.String()), nil
 }
 
-func writeAskpassScript() (path string, cleanup func(), err error) {
+// askpassScriptPath lazily writes the embedded askpass script to a temp file
+// on first use and caches its path for the lifetime of the client.
+func (c *client) askpassScriptPath() (string, error) {
+	c.askpassOnce.Do(func() {
+		c.askpassPath, c.askpassErr = writeAskpassScript()
+	})
+	return c.askpassPath, c.askpassErr
+}
+
+func writeAskpassScript() (path string, err error) {
 	f, err := os.CreateTemp("", "git-askpass-*")
 	if err != nil {
-		return "", nil, err
+		return "", err
 	}
 	path = f.Name()
 
 	if _, err := f.Write(askpassScript); err != nil {
 		f.Close()
 		os.Remove(path)
-		return "", nil, err
+		return "", err
 	}
 	if err := f.Close(); err != nil {
 		os.Remove(path)
-		return "", nil, err
+		return "", err
 	}
 	if err := os.Chmod(path, 0o700); err != nil {
 		os.Remove(path)
-		return "", nil, err
+		return "", err
 	}
 
-	return path, func() { os.Remove(path) }, nil
+	return path, nil
 }
 
 func parseLsRemote(output string) []providergit.Ref {
