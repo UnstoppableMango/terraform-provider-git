@@ -73,7 +73,9 @@ func (p *gitProvider) Configure(ctx context.Context, req provider.ConfigureReque
 		client = gogit.New()
 	}
 
-	resp.ResourceData = &providerData{GitClient: client}
+	data := &providerData{GitClient: client}
+	resp.ResourceData = data
+	resp.DataSourceData = data
 }
 
 func (p *gitProvider) DataSources(_ context.Context) []func() datasource.DataSource {
