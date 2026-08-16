@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 )
 
 // defaultBaseURL is the real GitHub REST API base URL used unless overridden
@@ -55,9 +57,14 @@ type pullRequestResponse struct {
 }
 
 func (c *client) ResolvePR(ctx context.Context, repository string, pr int64, auth Auth) (Resolution, error) {
-	url := fmt.Sprintf("%s/repos/%s/pulls/%d", c.baseURL, repository, pr)
+	repoPath, err := escapeRepository(repository)
+	if err != nil {
+		return Resolution{}, err
+	}
 
-	body, err := c.get(ctx, url, "", auth)
+	reqURL := fmt.Sprintf("%s/repos/%s/pulls/%d", c.baseURL, repoPath, pr)
+
+	body, err := c.get(ctx, reqURL, "", auth)
 	if err != nil {
 		return Resolution{}, fmt.Errorf("resolving pull request: %w", err)
 	}
@@ -67,18 +74,38 @@ func (c *client) ResolvePR(ctx context.Context, repository string, pr int64, aut
 		return Resolution{}, fmt.Errorf("parsing pull request response: %w", err)
 	}
 
+	if pull.Head.SHA == "" {
+		return Resolution{}, fmt.Errorf("pull request response missing head commit sha")
+	}
+
 	return c.ResolveCommit(ctx, repository, pull.Head.SHA, auth)
 }
 
 func (c *client) ResolveCommit(ctx context.Context, repository string, sha string, auth Auth) (Resolution, error) {
-	url := fmt.Sprintf("%s/repos/%s/commits/%s", c.baseURL, repository, sha)
+	repoPath, err := escapeRepository(repository)
+	if err != nil {
+		return Resolution{}, err
+	}
 
-	diff, err := c.get(ctx, url, diffAccept, auth)
+	reqURL := fmt.Sprintf("%s/repos/%s/commits/%s", c.baseURL, repoPath, url.PathEscape(sha))
+
+	diff, err := c.get(ctx, reqURL, diffAccept, auth)
 	if err != nil {
 		return Resolution{}, fmt.Errorf("fetching diff: %w", err)
 	}
 
 	return Resolution{SHA: sha, Diff: string(diff)}, nil
+}
+
+// escapeRepository validates that repository is in owner/name form and
+// returns it with each segment percent-escaped for safe use in a URL path.
+func escapeRepository(repository string) (string, error) {
+	owner, name, ok := strings.Cut(repository, "/")
+	if !ok || owner == "" || name == "" || strings.Contains(name, "/") {
+		return "", fmt.Errorf("repository must be in owner/name form, got %q", repository)
+	}
+
+	return url.PathEscape(owner) + "/" + url.PathEscape(name), nil
 }
 
 // get issues a GET request to url, optionally setting an Accept header, and

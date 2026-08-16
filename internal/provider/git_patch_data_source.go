@@ -8,12 +8,13 @@ import (
 	"os"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/datasourcevalidator"
+	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/path"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
-	"github.com/UnstoppableMango/terraform-provider-git/internal/git"
 	"github.com/UnstoppableMango/terraform-provider-git/internal/git/github"
 )
 
@@ -27,7 +28,6 @@ var _ datasource.DataSourceWithConfigValidators = &gitPatchDataSource{}
 // PR/commit). It does not clone, apply, commit, or push; that is
 // git_branch's responsibility once it exists.
 type gitPatchDataSource struct {
-	client git.Client
 	github github.Client
 }
 
@@ -72,7 +72,6 @@ func (d *gitPatchDataSource) Configure(_ context.Context, req datasource.Configu
 		return
 	}
 
-	d.client = data.GitClient
 	d.github = data.GithubClient
 }
 
@@ -107,6 +106,12 @@ func (d *gitPatchDataSource) Schema(_ context.Context, _ datasource.SchemaReques
 					"pr": schema.Int64Attribute{
 						Optional:            true,
 						MarkdownDescription: "Pull request number to resolve the patch from.",
+						Validators: []validator.Int64{
+							int64validator.ExactlyOneOf(
+								path.MatchRelative().AtParent().AtName("pr"),
+								path.MatchRelative().AtParent().AtName("commit"),
+							),
+						},
 					},
 					"commit": schema.StringAttribute{
 						Optional:            true,
@@ -148,11 +153,7 @@ func (d *gitPatchDataSource) ConfigValidators(_ context.Context) []datasource.Co
 // githubAuthFromModel converts the data source's optional auth model into a
 // github.Auth, treating a nil or unset token as unauthenticated.
 func githubAuthFromModel(m *gitRepositoryAuthModel) github.Auth {
-	if m == nil || m.Token.IsNull() || m.Token.IsUnknown() {
-		return github.Auth{}
-	}
-
-	return github.Auth{Token: m.Token.ValueString()}
+	return github.Auth{Token: tokenFromModel(m)}
 }
 
 // resolve derives diff (and, when github is set, github.sha) from whichever
@@ -171,6 +172,10 @@ func (d *gitPatchDataSource) resolve(ctx context.Context, model *gitPatchResourc
 		}
 		diff = string(content)
 	case model.Github != nil:
+		if d.github == nil {
+			return fmt.Errorf("github client not configured")
+		}
+
 		auth := githubAuthFromModel(model.Auth)
 
 		var resolution github.Resolution

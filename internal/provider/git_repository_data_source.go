@@ -65,14 +65,20 @@ func (d *gitRepositoryDataSource) Configure(_ context.Context, req datasource.Co
 	d.client = data.GitClient
 }
 
+// tokenFromModel extracts the auth token from m, treating a nil or unset
+// token as unauthenticated (empty string).
+func tokenFromModel(m *gitRepositoryAuthModel) string {
+	if m == nil || m.Token.IsNull() || m.Token.IsUnknown() {
+		return ""
+	}
+
+	return m.Token.ValueString()
+}
+
 // authFromModel converts a gitRepositoryAuthModel into a git.Auth, treating
 // a nil or unset token as unauthenticated.
 func authFromModel(host types.String, m *gitRepositoryAuthModel) git.Auth {
-	if m == nil || m.Token.IsNull() || m.Token.IsUnknown() {
-		return git.Auth{}
-	}
-
-	return git.Auth{Token: m.Token.ValueString(), Host: host.ValueString()}
+	return git.Auth{Token: tokenFromModel(m), Host: host.ValueString()}
 }
 
 // verifyReachable checks that url is reachable with auth via the configured
@@ -130,8 +136,7 @@ func (d *gitRepositoryDataSource) Read(ctx context.Context, req datasource.ReadR
 	}
 
 	if err := d.verifyReachable(ctx, config.Url.ValueString(), authFromModel(config.Host, config.Auth)); err != nil {
-		resp.Diagnostics.AddError("Unable to Reach Repository", err.Error())
-		return
+		resp.Diagnostics.AddWarning("Unable to Reach Repository", err.Error())
 	}
 
 	config.Id = config.Url
