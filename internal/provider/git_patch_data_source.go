@@ -150,12 +150,6 @@ func (d *gitPatchDataSource) ConfigValidators(_ context.Context) []datasource.Co
 	}
 }
 
-// githubAuthFromModel converts the data source's optional auth model into a
-// github.Auth, treating a nil or unset token as unauthenticated.
-func githubAuthFromModel(m *gitRepositoryAuthModel) github.Auth {
-	return github.Auth{Token: tokenFromModel(m)}
-}
-
 // resolve derives diff (and, when github is set, github.sha) from whichever
 // of content, file, or github is set on model, and computes id as the hex
 // sha256 digest of the resolved diff.
@@ -176,14 +170,14 @@ func (d *gitPatchDataSource) resolve(ctx context.Context, model *gitPatchResourc
 			return fmt.Errorf("github client not configured")
 		}
 
-		auth := githubAuthFromModel(model.Auth)
+		token := tokenFromModel(model.Auth)
 
 		var resolution github.Resolution
 		var err error
 		if !model.Github.Pr.IsNull() && !model.Github.Pr.IsUnknown() {
-			resolution, err = d.github.ResolvePR(ctx, model.Github.Repository.ValueString(), model.Github.Pr.ValueInt64(), auth)
+			resolution, err = d.github.ResolvePR(ctx, model.Github.Repository.ValueString(), model.Github.Pr.ValueInt64(), token)
 		} else {
-			resolution, err = d.github.ResolveCommit(ctx, model.Github.Repository.ValueString(), model.Github.Commit.ValueString(), auth)
+			resolution, err = d.github.ResolveCommit(ctx, model.Github.Repository.ValueString(), model.Github.Commit.ValueString(), token)
 		}
 		if err != nil {
 			return fmt.Errorf("resolving github source: %w", err)

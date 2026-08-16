@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -18,25 +19,23 @@ func TestGithub(t *testing.T) {
 	RunSpecs(t, "internal/git/github Suite")
 }
 
-// The fake server below stands in for the real GitHub REST API and expects
-// the client under test to speak the following contract:
+// The fake server below stands in for the real GitHub REST API. The client is
+// backed by go-github, so it speaks go-github's request contract:
 //
-//   - ResolvePR issues GET /repos/{owner}/{name}/pulls/{pr}, parses the head
-//     commit sha from the JSON response body (shaped like the real GitHub API:
-//     {"head":{"sha":"..."}}), then issues GET
-//     /repos/{owner}/{name}/commits/{sha} with an
-//     "Accept: application/vnd.github.v3.diff" header and uses the raw
-//     response body as the diff.
-//   - ResolveCommit issues GET /repos/{owner}/{name}/commits/{sha} directly
-//     with the same diff Accept header and uses the raw response body as the
-//     diff, returning the input sha unchanged as Resolution.SHA.
-//   - Both requests carry an "Authorization: Bearer <token>" header when
-//     Auth.Token is non-empty, and no Authorization header at all otherwise.
-//   - A non-2xx response from either endpoint becomes a non-nil error whose
-//     message includes the response status code.
+//   - ResolvePR issues GET /repos/{owner}/{name}/pulls/{pr} twice: once with a
+//     JSON Accept header (parsed for {"head":{"sha":"..."}} to obtain the head
+//     commit sha), and once with an "application/vnd.github.v3.diff" Accept
+//     header whose raw response body is the pull request diff.
+//   - ResolveCommit issues GET /repos/{owner}/{name}/commits/{sha} with the
+//     diff Accept header and uses the raw response body as the diff, returning
+//     the input sha unchanged as Resolution.SHA.
+//   - Requests carry an "Authorization: Bearer <token>" header when a token is
+//     provided, and no Authorization header otherwise.
+//   - A non-2xx response becomes a non-nil error whose message includes the
+//     response status code.
 //
-// The client is expected to be constructed via github.New, pointed at the
-// fake server via a github.WithBaseURL(baseURL) option.
+// The client is constructed via github.New, pointed at the fake server via a
+// github.WithBaseURL(baseURL) option.
 var _ = Describe("Client", func() {
 	const (
 		repository = "owner/repo"
@@ -46,21 +45,27 @@ var _ = Describe("Client", func() {
 		diffBody   = "diff --git a/foo b/foo\n+bar\n"
 	)
 
+	wantsDiff := func(r *http.Request) bool {
+		return strings.Contains(r.Header.Get("Accept"), "diff")
+	}
+
 	Describe("ResolvePR", func() {
-		It("requests the pull request at the expected path and resolves sha and diff", func() {
-			var gotPRPath, gotDiffPath, gotDiffAccept string
+		It("resolves the head sha from JSON and the diff from the pull request diff endpoint", func() {
+			var gotJSONPath, gotDiffPath, gotDiffAccept string
 
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
 				case fmt.Sprintf("/repos/%s/pulls/%d", repository, prNumber):
-					gotPRPath = r.URL.Path
 					Expect(r.Method).To(Equal(http.MethodGet))
+					if wantsDiff(r) {
+						gotDiffPath = r.URL.Path
+						gotDiffAccept = r.Header.Get("Accept")
+						fmt.Fprint(w, diffBody)
+						return
+					}
+					gotJSONPath = r.URL.Path
 					w.Header().Set("Content-Type", "application/json")
 					fmt.Fprintf(w, `{"head":{"sha":%q}}`, headSHA)
-				case fmt.Sprintf("/repos/%s/commits/%s", repository, headSHA):
-					gotDiffPath = r.URL.Path
-					gotDiffAccept = r.Header.Get("Accept")
-					fmt.Fprint(w, diffBody)
 				default:
 					w.WriteHeader(http.StatusNotFound)
 					fmt.Fprintf(w, "unexpected path: %s", r.URL.Path)
@@ -70,63 +75,60 @@ var _ = Describe("Client", func() {
 
 			client := github.New(github.WithBaseURL(server.URL))
 
-			resolution, err := client.ResolvePR(context.Background(), repository, prNumber, github.Auth{})
+			resolution, err := client.ResolvePR(context.Background(), repository, prNumber, "")
 
 			Expect(err).NotTo(HaveOccurred())
-			Expect(gotPRPath).To(Equal(fmt.Sprintf("/repos/%s/pulls/%d", repository, prNumber)))
-			Expect(gotDiffPath).To(Equal(fmt.Sprintf("/repos/%s/commits/%s", repository, headSHA)))
+			Expect(gotJSONPath).To(Equal(fmt.Sprintf("/repos/%s/pulls/%d", repository, prNumber)))
+			Expect(gotDiffPath).To(Equal(fmt.Sprintf("/repos/%s/pulls/%d", repository, prNumber)))
 			Expect(gotDiffAccept).To(ContainSubstring("diff"))
 			Expect(resolution.SHA).To(Equal(headSHA))
 			Expect(resolution.Diff).To(Equal(diffBody))
 		})
 
 		It("sends a bearer authorization header on both requests when a token is set", func() {
-			var gotPRAuth, gotDiffAuth string
+			var gotJSONAuth, gotDiffAuth string
 
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				switch r.URL.Path {
-				case fmt.Sprintf("/repos/%s/pulls/%d", repository, prNumber):
-					gotPRAuth = r.Header.Get("Authorization")
-					fmt.Fprintf(w, `{"head":{"sha":%q}}`, headSHA)
-				default:
+				if wantsDiff(r) {
 					gotDiffAuth = r.Header.Get("Authorization")
 					fmt.Fprint(w, diffBody)
+					return
 				}
+				gotJSONAuth = r.Header.Get("Authorization")
+				fmt.Fprintf(w, `{"head":{"sha":%q}}`, headSHA)
 			}))
 			defer server.Close()
 
 			client := github.New(github.WithBaseURL(server.URL))
 
-			_, err := client.ResolvePR(context.Background(), repository, prNumber, github.Auth{Token: "s3cr3t"})
+			_, err := client.ResolvePR(context.Background(), repository, prNumber, "s3cr3t")
 
 			Expect(err).NotTo(HaveOccurred())
-			Expect(gotPRAuth).To(Equal("Bearer s3cr3t"))
+			Expect(gotJSONAuth).To(Equal("Bearer s3cr3t"))
 			Expect(gotDiffAuth).To(Equal("Bearer s3cr3t"))
 		})
 
 		It("omits the authorization header when no token is set", func() {
-			var gotPRAuth string
-			sawPRAuthHeader := false
+			sawAuthHeader := false
 
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				switch r.URL.Path {
-				case fmt.Sprintf("/repos/%s/pulls/%d", repository, prNumber):
-					gotPRAuth = r.Header.Get("Authorization")
-					sawPRAuthHeader = r.Header.Get("Authorization") != ""
-					fmt.Fprintf(w, `{"head":{"sha":%q}}`, headSHA)
-				default:
-					fmt.Fprint(w, diffBody)
+				if r.Header.Get("Authorization") != "" {
+					sawAuthHeader = true
 				}
+				if wantsDiff(r) {
+					fmt.Fprint(w, diffBody)
+					return
+				}
+				fmt.Fprintf(w, `{"head":{"sha":%q}}`, headSHA)
 			}))
 			defer server.Close()
 
 			client := github.New(github.WithBaseURL(server.URL))
 
-			_, err := client.ResolvePR(context.Background(), repository, prNumber, github.Auth{})
+			_, err := client.ResolvePR(context.Background(), repository, prNumber, "")
 
 			Expect(err).NotTo(HaveOccurred())
-			Expect(sawPRAuthHeader).To(BeFalse())
-			Expect(gotPRAuth).To(BeEmpty())
+			Expect(sawAuthHeader).To(BeFalse())
 		})
 
 		It("returns an error including the status code for a non-2xx response resolving the pull request", func() {
@@ -138,7 +140,7 @@ var _ = Describe("Client", func() {
 
 			client := github.New(github.WithBaseURL(server.URL))
 
-			_, err := client.ResolvePR(context.Background(), repository, prNumber, github.Auth{})
+			_, err := client.ResolvePR(context.Background(), repository, prNumber, "")
 
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("404"))
@@ -146,19 +148,18 @@ var _ = Describe("Client", func() {
 
 		It("returns an error including the status code for a non-2xx response fetching the diff", func() {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				switch r.URL.Path {
-				case fmt.Sprintf("/repos/%s/pulls/%d", repository, prNumber):
-					fmt.Fprintf(w, `{"head":{"sha":%q}}`, headSHA)
-				default:
+				if wantsDiff(r) {
 					w.WriteHeader(http.StatusInternalServerError)
 					fmt.Fprint(w, "boom")
+					return
 				}
+				fmt.Fprintf(w, `{"head":{"sha":%q}}`, headSHA)
 			}))
 			defer server.Close()
 
 			client := github.New(github.WithBaseURL(server.URL))
 
-			_, err := client.ResolvePR(context.Background(), repository, prNumber, github.Auth{})
+			_, err := client.ResolvePR(context.Background(), repository, prNumber, "")
 
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("500"))
@@ -179,7 +180,7 @@ var _ = Describe("Client", func() {
 
 			client := github.New(github.WithBaseURL(server.URL))
 
-			resolution, err := client.ResolveCommit(context.Background(), repository, commitSHA, github.Auth{})
+			resolution, err := client.ResolveCommit(context.Background(), repository, commitSHA, "")
 
 			Expect(err).NotTo(HaveOccurred())
 			Expect(gotPath).To(Equal(fmt.Sprintf("/repos/%s/commits/%s", repository, commitSHA)))
@@ -199,7 +200,7 @@ var _ = Describe("Client", func() {
 
 			client := github.New(github.WithBaseURL(server.URL))
 
-			_, err := client.ResolveCommit(context.Background(), repository, commitSHA, github.Auth{Token: "s3cr3t"})
+			_, err := client.ResolveCommit(context.Background(), repository, commitSHA, "s3cr3t")
 
 			Expect(err).NotTo(HaveOccurred())
 			Expect(gotAuth).To(Equal("Bearer s3cr3t"))
@@ -216,7 +217,7 @@ var _ = Describe("Client", func() {
 
 			client := github.New(github.WithBaseURL(server.URL))
 
-			_, err := client.ResolveCommit(context.Background(), repository, commitSHA, github.Auth{})
+			_, err := client.ResolveCommit(context.Background(), repository, commitSHA, "")
 
 			Expect(err).NotTo(HaveOccurred())
 			Expect(sawAuthHeader).To(BeFalse())
@@ -231,7 +232,7 @@ var _ = Describe("Client", func() {
 
 			client := github.New(github.WithBaseURL(server.URL))
 
-			_, err := client.ResolveCommit(context.Background(), repository, commitSHA, github.Auth{})
+			_, err := client.ResolveCommit(context.Background(), repository, commitSHA, "")
 
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("404"))

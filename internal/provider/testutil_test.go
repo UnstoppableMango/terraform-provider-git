@@ -59,22 +59,22 @@ func runGit(dir string, args ...string) {
 // backed by a configurable function field; a nil field panics if called,
 // so tests only need to set the functions relevant to what they exercise.
 type fakeGitHubClient struct {
-	resolvePRFunc     func(ctx context.Context, repository string, pr int64, auth github.Auth) (github.Resolution, error)
-	resolveCommitFunc func(ctx context.Context, repository string, sha string, auth github.Auth) (github.Resolution, error)
+	resolvePRFunc     func(ctx context.Context, repository string, pr int64, token string) (github.Resolution, error)
+	resolveCommitFunc func(ctx context.Context, repository, sha, token string) (github.Resolution, error)
 }
 
 var _ github.Client = (*fakeGitHubClient)(nil)
 
-func (f *fakeGitHubClient) ResolvePR(ctx context.Context, repository string, pr int64, auth github.Auth) (github.Resolution, error) {
+func (f *fakeGitHubClient) ResolvePR(ctx context.Context, repository string, pr int64, token string) (github.Resolution, error) {
 	if f.resolvePRFunc == nil {
 		panic("fakeGitHubClient: ResolvePR called but resolvePRFunc is nil")
 	}
-	return f.resolvePRFunc(ctx, repository, pr, auth)
+	return f.resolvePRFunc(ctx, repository, pr, token)
 }
 
-func (f *fakeGitHubClient) ResolveCommit(ctx context.Context, repository string, sha string, auth github.Auth) (github.Resolution, error) {
+func (f *fakeGitHubClient) ResolveCommit(ctx context.Context, repository, sha, token string) (github.Resolution, error) {
 	if f.resolveCommitFunc == nil {
 		panic("fakeGitHubClient: ResolveCommit called but resolveCommitFunc is nil")
 	}
-	return f.resolveCommitFunc(ctx, repository, sha, auth)
+	return f.resolveCommitFunc(ctx, repository, sha, token)
 }
