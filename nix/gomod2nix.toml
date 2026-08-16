@@ -2,8 +2,8 @@ schema = 3
 
 [mod]
   [mod.'dario.cat/mergo']
-    version = 'v1.0.0'
-    hash = 'sha256-jlpc8dDj+DmiOU4gEawBu8poJJj9My0s9Mvuk9oS8ww='
+    version = 'v1.0.2'
+    hash = 'sha256-p6jdiHlLEfZES8vJnDywG4aVzIe16p0CU6iglglIweA='
 
   [mod.'github.com/Masterminds/semver/v3']
     version = 'v3.4.0'
@@ -26,12 +26,12 @@ schema = 3
     hash = 'sha256-960kVVQSGhx1Gww5cfoNeM3yXaA4dwlv+AFhKh6EGlA='
 
   [mod.'github.com/cloudflare/circl']
-    version = 'v1.6.3'
-    hash = 'sha256-XZm4EastgX67Dgm5BpOEW/PY4aLcHM/O8+Xbz26PuTY='
+    version = 'v1.6.5'
+    hash = 'sha256-nrD+9cNt6xEohb0EA2bZCuSM03GXYPg/YMD0Y+HF8WU='
 
   [mod.'github.com/cyphar/filepath-securejoin']
-    version = 'v0.4.1'
-    hash = 'sha256-NOV6MfbkcQbfhNmfADQw2SJmZ6q1nw0wwg8Pm2tf2DM='
+    version = 'v0.7.0'
+    hash = 'sha256-LMTkRIE3ZkhYDxfDt/l8EZugyoyji1u620BYzo8dd9E='
 
   [mod.'github.com/emirpasic/gods']
     version = 'v1.18.1'
@@ -46,12 +46,12 @@ schema = 3
     hash = 'sha256-f4k0gSYuo0/q3WOoTxl2eFaj7WZpdz29ih6CKc8Ude8='
 
   [mod.'github.com/go-git/go-billy/v5']
-    version = 'v5.8.0'
-    hash = 'sha256-c4ScYknbM+MPHF+2vqnGMBuBLc4U1iYuyymq61Vts9Y='
+    version = 'v5.9.1'
+    hash = 'sha256-VW8mfdLjvAuiooR2WV7P0IoOosAvtDZvFWcGQJJVSSY='
 
   [mod.'github.com/go-git/go-git/v5']
-    version = 'v5.18.0'
-    hash = 'sha256-9n2mTwPvx9d90ZEmezIq6SY7UET/32WNw2xYAp8mQ5Y='
+    version = 'v5.19.2'
+    hash = 'sha256-2du2hn5JDTEEYTWuGX+heSftkmd7HoaJXyWJG4bZeSM='
 
   [mod.'github.com/go-logr/logr']
     version = 'v1.4.3'
@@ -178,8 +178,12 @@ schema = 3
     hash = 'sha256-VANNCWNNpARH/ILQV9sCQsBWgyL2iFT+4AHZREpxIWE='
 
   [mod.'github.com/kevinburke/ssh_config']
-    version = 'v1.2.0'
-    hash = 'sha256-Ta7ZOmyX8gG5tzWbY2oES70EJPfI90U7CIJS9EAce0s='
+    version = 'v1.6.0'
+    hash = 'sha256-i/EYNJx0+HbAGFVoiKV4QF/zqb4fWewh+bpBKUkXDCc='
+
+  [mod.'github.com/klauspost/cpuid/v2']
+    version = 'v2.4.0'
+    hash = 'sha256-nvTeRVxDekVNLd25aJ2NslBnG7nT25ewoSTk3iW5Xok='
 
   [mod.'github.com/mattn/go-colorable']
     version = 'v0.1.15'
@@ -222,16 +226,16 @@ schema = 3
     hash = 'sha256-VtQLikXkQ4mhZaT8SfEcVsaDodZIewo9WVNPJhiZf14='
 
   [mod.'github.com/pjbgf/sha1cd']
-    version = 'v0.3.2'
-    hash = 'sha256-jdbiRhU8xc1C5c8m7BSCj71PUXHY3f7TWFfxDKKpUMk='
+    version = 'v0.6.0'
+    hash = 'sha256-WC/sYIy9Iznlra87K9Gonn6/bo4a2aE+kvldecfBPfE='
 
   [mod.'github.com/sergi/go-diff']
-    version = 'v1.3.2-0.20230802210424-5b0b94c5c0d3'
-    hash = 'sha256-UcLU83CPMbSoKI8RLvLJ7nvGaE2xRSL1RjoHCVkMzUM='
+    version = 'v1.4.0'
+    hash = 'sha256-rs9NKpv/qcQEMRg7CmxGdP4HGuFdBxlpWf9LbA9wS4k='
 
   [mod.'github.com/skeema/knownhosts']
-    version = 'v1.3.1'
-    hash = 'sha256-kjqQDzuncQNTuOYegqVZExwuOt/Z73m2ST7NZFEKixI='
+    version = 'v1.3.2'
+    hash = 'sha256-fEGeX/V9fC3MVjY34yuL8vn00brqIoTXLAX0x4ecBzg='
 
   [mod.'github.com/vmihailenco/msgpack']
     version = 'v4.0.4+incompatible'
