@@ -10,8 +10,8 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/hashicorp/terraform-plugin-framework/resource"
-	rschema "github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/datasource"
+	dschema "github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	tfresource "github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -22,8 +22,8 @@ import (
 )
 
 // patchModel mirrors the tfsdk tags of the unexported gitPatchResourceModel
-// in git_patch_resource.go, so tests in this external provider_test package
-// can build tfsdk.Plan/Config/State values by hand without access to the
+// in git_patch_data_source.go, so tests in this external provider_test
+// package can build tfsdk.Config/State values by hand without access to the
 // unexported type. See repoModel/authModel in
 // git_repository_data_source_test.go for the established pattern this
 // follows.
@@ -48,42 +48,42 @@ func sha256Hex(s string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// newPatchCreateRequest builds a CreateRequest/CreateResponse pair from a
-// hand-built patchModel, mirroring how a real Terraform plan/apply would
-// populate Config and Plan from the same raw values.
-func newPatchCreateRequest(patchSchema rschema.Schema, model patchModel) (resource.CreateRequest, *resource.CreateResponse) {
+// newPatchReadRequest builds a ReadRequest/ReadResponse pair from a
+// hand-built patchModel. tfsdk.Config has no Set method (unlike Plan/State),
+// so the raw value is built via a throwaway State and reused, mirroring the
+// pattern in git_repository_data_source_test.go.
+func newPatchReadRequest(patchSchema dschema.Schema, model patchModel) (datasource.ReadRequest, *datasource.ReadResponse) {
 	ctx := context.Background()
 
-	plan := tfsdk.Plan{Schema: patchSchema}
-	Expect(plan.Set(ctx, &model).HasError()).To(BeFalse())
+	built := tfsdk.State{Schema: patchSchema}
+	Expect(built.Set(ctx, &model).HasError()).To(BeFalse())
 
-	req := resource.CreateRequest{
-		Config: tfsdk.Config{Schema: patchSchema, Raw: plan.Raw},
-		Plan:   plan,
+	req := datasource.ReadRequest{
+		Config: tfsdk.Config{Schema: patchSchema, Raw: built.Raw},
 	}
-	resp := &resource.CreateResponse{State: tfsdk.State{Schema: patchSchema}}
+	resp := &datasource.ReadResponse{State: tfsdk.State{Schema: patchSchema}}
 
 	return req, resp
 }
 
-var _ = Describe("GitPatchResource", func() {
-	var res resource.Resource
-	var patchSchema rschema.Schema
+var _ = Describe("GitPatchDataSource", func() {
+	var ds datasource.DataSource
+	var patchSchema dschema.Schema
 
 	BeforeEach(func() {
-		res = provider.NewGitPatchResource()
+		ds = provider.NewGitPatchDataSource()
 
-		schemaResp := resource.SchemaResponse{}
-		res.Schema(context.Background(), resource.SchemaRequest{}, &schemaResp)
+		schemaResp := datasource.SchemaResponse{}
+		ds.Schema(context.Background(), datasource.SchemaRequest{}, &schemaResp)
 		patchSchema = schemaResp.Schema
 	})
 
 	Describe("Metadata", func() {
 		It("derives the type name from the provider type name", func() {
-			req := resource.MetadataRequest{ProviderTypeName: "git"}
-			resp := &resource.MetadataResponse{}
+			req := datasource.MetadataRequest{ProviderTypeName: "git"}
+			resp := &datasource.MetadataResponse{}
 
-			res.Metadata(context.Background(), req, resp)
+			ds.Metadata(context.Background(), req, resp)
 
 			Expect(resp.TypeName).To(Equal("git_patch"))
 		})
@@ -91,8 +91,8 @@ var _ = Describe("GitPatchResource", func() {
 
 	Describe("Schema", func() {
 		It("produces a schema with no errors", func() {
-			schemaResp := resource.SchemaResponse{}
-			res.Schema(context.Background(), resource.SchemaRequest{}, &schemaResp)
+			schemaResp := datasource.SchemaResponse{}
+			ds.Schema(context.Background(), datasource.SchemaRequest{}, &schemaResp)
 
 			Expect(schemaResp.Diagnostics.HasError()).To(BeFalse())
 		})
@@ -149,15 +149,15 @@ var _ = Describe("GitPatchResource", func() {
 				Expect(a.IsRequired()).To(BeFalse())
 				Expect(a.IsOptional()).To(BeTrue())
 
-				_, ok := a.(rschema.NestedAttribute)
+				_, ok := a.(dschema.NestedAttribute)
 				Expect(ok).To(BeTrue(), "expected github to be a nested attribute type")
 
-				_, ok = a.(rschema.SingleNestedAttribute)
+				_, ok = a.(dschema.SingleNestedAttribute)
 				Expect(ok).To(BeTrue(), "expected github to be a schema.SingleNestedAttribute")
 			})
 
 			It("defines repository (required), pr (optional), commit (optional), and sha (computed)", func() {
-				nested, ok := patchSchema.Attributes["github"].(rschema.NestedAttribute)
+				nested, ok := patchSchema.Attributes["github"].(dschema.NestedAttribute)
 				Expect(ok).To(BeTrue(), "expected github to be a nested attribute type")
 				attrs := nested.GetNestedObject().GetAttributes()
 
@@ -185,7 +185,7 @@ var _ = Describe("GitPatchResource", func() {
 
 		Describe("auth attribute", func() {
 			It("has an optional, sensitive token child attribute", func() {
-				nested, ok := patchSchema.Attributes["auth"].(rschema.NestedAttribute)
+				nested, ok := patchSchema.Attributes["auth"].(dschema.NestedAttribute)
 				Expect(ok).To(BeTrue(), "expected auth to be a nested attribute type")
 
 				tokenAttr, ok := nested.GetNestedObject().GetAttributes()["token"]
@@ -196,7 +196,7 @@ var _ = Describe("GitPatchResource", func() {
 		})
 	})
 
-	Describe("Create", func() {
+	Describe("Read", func() {
 		Context("with content set", func() {
 			It("resolves diff to content and id to its sha256", func() {
 				const content = "diff --git a/x b/x\nindex 0000000..1111111 100644\n--- a/x\n+++ b/x\n@@ -0,0 +1 @@\n+hello\n"
@@ -207,9 +207,9 @@ var _ = Describe("GitPatchResource", func() {
 					File:    types.StringNull(),
 					Diff:    types.StringUnknown(),
 				}
-				req, resp := newPatchCreateRequest(patchSchema, model)
+				req, resp := newPatchReadRequest(patchSchema, model)
 
-				res.Create(context.Background(), req, resp)
+				ds.Read(context.Background(), req, resp)
 
 				Expect(resp.Diagnostics.HasError()).To(BeFalse(), fmt.Sprintf("%v", resp.Diagnostics))
 
@@ -234,9 +234,9 @@ var _ = Describe("GitPatchResource", func() {
 					File:    types.StringValue(path),
 					Diff:    types.StringUnknown(),
 				}
-				req, resp := newPatchCreateRequest(patchSchema, model)
+				req, resp := newPatchReadRequest(patchSchema, model)
 
-				res.Create(context.Background(), req, resp)
+				ds.Read(context.Background(), req, resp)
 
 				Expect(resp.Diagnostics.HasError()).To(BeFalse(), fmt.Sprintf("%v", resp.Diagnostics))
 
@@ -255,22 +255,22 @@ var _ = Describe("GitPatchResource", func() {
 				path := filepath.Join(dir, "same.diff")
 				Expect(os.WriteFile(path, []byte(content), 0o644)).To(Succeed())
 
-				contentReq, contentResp := newPatchCreateRequest(patchSchema, patchModel{
+				contentReq, contentResp := newPatchReadRequest(patchSchema, patchModel{
 					Id:      types.StringUnknown(),
 					Content: types.StringValue(content),
 					File:    types.StringNull(),
 					Diff:    types.StringUnknown(),
 				})
-				res.Create(context.Background(), contentReq, contentResp)
+				ds.Read(context.Background(), contentReq, contentResp)
 				Expect(contentResp.Diagnostics.HasError()).To(BeFalse(), fmt.Sprintf("%v", contentResp.Diagnostics))
 
-				fileReq, fileResp := newPatchCreateRequest(patchSchema, patchModel{
+				fileReq, fileResp := newPatchReadRequest(patchSchema, patchModel{
 					Id:      types.StringUnknown(),
 					Content: types.StringNull(),
 					File:    types.StringValue(path),
 					Diff:    types.StringUnknown(),
 				})
-				res.Create(context.Background(), fileReq, fileResp)
+				ds.Read(context.Background(), fileReq, fileResp)
 				Expect(fileResp.Diagnostics.HasError()).To(BeFalse(), fmt.Sprintf("%v", fileResp.Diagnostics))
 
 				var gotFromContent, gotFromFile patchModel
@@ -289,7 +289,7 @@ func TestAccGitPatch_exactlyOneSource(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []tfresource.TestStep{
 			{
-				Config: `resource "git_patch" "test" {
+				Config: `data "git_patch" "test" {
   content = "diff --git a/x b/x\n+hello\n"
   file    = "/tmp/does-not-need-to-exist.diff"
 }`,

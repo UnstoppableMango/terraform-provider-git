@@ -1,22 +1,16 @@
 package provider
 
-// This file's specs cover the github-source path of git_patch's Create,
-// which needs a fake github.Client injected into the unexported
-// gitPatchResource.github field. That field, and the gitPatchResource type
-// itself, are unexported, so this file intentionally lives in package
-// provider (not provider_test) to reach them directly, following the
-// pattern the task briefing asked for
-// (`&gitPatchResource{github: &fakeGitHubClient{...}}`).
+// This file's specs cover the github-source path of git_patch's Read, which
+// needs a fake github.Client injected into the unexported
+// gitPatchDataSource.github field. That field, and the gitPatchDataSource
+// type itself, are unexported, so this file intentionally lives in package
+// provider (not provider_test) to reach them directly.
 //
 // The fakeGitHubClient double used by the rest of the suite lives in
 // testutil_test.go under package provider_test, which this package cannot
 // import (provider_test already imports provider, so the reverse would be
 // a cycle) and could not use anyway since it's unexported. So this file
-// defines its own minimal fake satisfying github.Client. See the final
-// report for a note recommending a proper test seam (e.g. a functional
-// option on NewGitPatchResource) so github-source specs like these can
-// live alongside the rest of the git_patch_resource specs in
-// provider_test instead of needing this internal-package split.
+// defines its own minimal fake satisfying github.Client.
 
 import (
 	"context"
@@ -24,7 +18,7 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	. "github.com/onsi/ginkgo/v2"
@@ -64,25 +58,24 @@ func sha256HexInternal(s string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-var _ = Describe("gitPatchResource github source", func() {
-	var patchSchema resource.SchemaResponse
+var _ = Describe("gitPatchDataSource github source", func() {
+	var patchSchema datasource.SchemaResponse
 
 	BeforeEach(func() {
-		patchSchema = resource.SchemaResponse{}
-		(&gitPatchResource{}).Schema(context.Background(), resource.SchemaRequest{}, &patchSchema)
+		patchSchema = datasource.SchemaResponse{}
+		(&gitPatchDataSource{}).Schema(context.Background(), datasource.SchemaRequest{}, &patchSchema)
 	})
 
-	newCreateRequest := func(model gitPatchResourceModel) (resource.CreateRequest, *resource.CreateResponse) {
+	newReadRequest := func(model gitPatchResourceModel) (datasource.ReadRequest, *datasource.ReadResponse) {
 		ctx := context.Background()
 
-		plan := tfsdk.Plan{Schema: patchSchema.Schema}
-		Expect(plan.Set(ctx, &model).HasError()).To(BeFalse())
+		built := tfsdk.State{Schema: patchSchema.Schema}
+		Expect(built.Set(ctx, &model).HasError()).To(BeFalse())
 
-		req := resource.CreateRequest{
-			Config: tfsdk.Config{Schema: patchSchema.Schema, Raw: plan.Raw},
-			Plan:   plan,
+		req := datasource.ReadRequest{
+			Config: tfsdk.Config{Schema: patchSchema.Schema, Raw: built.Raw},
 		}
-		resp := &resource.CreateResponse{State: tfsdk.State{Schema: patchSchema.Schema}}
+		resp := &datasource.ReadResponse{State: tfsdk.State{Schema: patchSchema.Schema}}
 
 		return req, resp
 	}
@@ -101,7 +94,7 @@ var _ = Describe("gitPatchResource github source", func() {
 					return github.Resolution{SHA: resolvedSHA, Diff: resolvedDiff}, nil
 				},
 			}
-			r := &gitPatchResource{github: fake}
+			ds := &gitPatchDataSource{github: fake}
 
 			model := gitPatchResourceModel{
 				Id:      types.StringUnknown(),
@@ -118,9 +111,9 @@ var _ = Describe("gitPatchResource github source", func() {
 					Token: types.StringValue("tok-123"),
 				},
 			}
-			req, resp := newCreateRequest(model)
+			req, resp := newReadRequest(model)
 
-			r.Create(context.Background(), req, resp)
+			ds.Read(context.Background(), req, resp)
 
 			Expect(resp.Diagnostics.HasError()).To(BeFalse(), fmt.Sprintf("%v", resp.Diagnostics))
 
@@ -150,7 +143,7 @@ var _ = Describe("gitPatchResource github source", func() {
 					return github.Resolution{SHA: sha, Diff: resolvedDiff}, nil
 				},
 			}
-			r := &gitPatchResource{github: fake}
+			ds := &gitPatchDataSource{github: fake}
 
 			model := gitPatchResourceModel{
 				Id:      types.StringUnknown(),
@@ -165,9 +158,9 @@ var _ = Describe("gitPatchResource github source", func() {
 				},
 				Auth: nil,
 			}
-			req, resp := newCreateRequest(model)
+			req, resp := newReadRequest(model)
 
-			r.Create(context.Background(), req, resp)
+			ds.Read(context.Background(), req, resp)
 
 			Expect(resp.Diagnostics.HasError()).To(BeFalse(), fmt.Sprintf("%v", resp.Diagnostics))
 
@@ -193,10 +186,10 @@ var _ = Describe("gitPatchResource github source", func() {
 					return github.Resolution{SHA: sha, Diff: sharedDiff}, nil
 				},
 			}
-			githubR := &gitPatchResource{github: fake}
-			contentR := &gitPatchResource{}
+			githubDS := &gitPatchDataSource{github: fake}
+			contentDS := &gitPatchDataSource{}
 
-			githubReq, githubResp := newCreateRequest(gitPatchResourceModel{
+			githubReq, githubResp := newReadRequest(gitPatchResourceModel{
 				Id:   types.StringUnknown(),
 				Diff: types.StringUnknown(),
 				Github: &gitPatchGithubModel{
@@ -206,15 +199,15 @@ var _ = Describe("gitPatchResource github source", func() {
 					Sha:        types.StringUnknown(),
 				},
 			})
-			githubR.Create(context.Background(), githubReq, githubResp)
+			githubDS.Read(context.Background(), githubReq, githubResp)
 			Expect(githubResp.Diagnostics.HasError()).To(BeFalse(), fmt.Sprintf("%v", githubResp.Diagnostics))
 
-			contentReq, contentResp := newCreateRequest(gitPatchResourceModel{
+			contentReq, contentResp := newReadRequest(gitPatchResourceModel{
 				Id:      types.StringUnknown(),
 				Content: types.StringValue(sharedDiff),
 				Diff:    types.StringUnknown(),
 			})
-			contentR.Create(context.Background(), contentReq, contentResp)
+			contentDS.Read(context.Background(), contentReq, contentResp)
 			Expect(contentResp.Diagnostics.HasError()).To(BeFalse(), fmt.Sprintf("%v", contentResp.Diagnostics))
 
 			var gotFromGithub, gotFromContent gitPatchResourceModel

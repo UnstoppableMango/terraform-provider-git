@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/hashicorp/terraform-plugin-framework-validators/resourcevalidator"
+	"github.com/hashicorp/terraform-plugin-framework-validators/datasourcevalidator"
+	"github.com/hashicorp/terraform-plugin-framework/datasource"
+	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/path"
-	"github.com/hashicorp/terraform-plugin-framework/resource"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	"github.com/UnstoppableMango/terraform-provider-git/internal/git"
@@ -18,20 +18,20 @@ import (
 )
 
 // Ensure the implementation satisfies the desired interfaces.
-var _ resource.Resource = &gitPatchResource{}
-var _ resource.ResourceWithConfigure = &gitPatchResource{}
-var _ resource.ResourceWithConfigValidators = &gitPatchResource{}
+var _ datasource.DataSource = &gitPatchDataSource{}
+var _ datasource.DataSourceWithConfigure = &gitPatchDataSource{}
+var _ datasource.DataSourceWithConfigValidators = &gitPatchDataSource{}
 
-// gitPatchResource manages the identity and resolved content of a single
-// patch: a local file, inline diff content, or a remote host source (e.g. a
-// GitHub PR/commit). It does not clone, apply, commit, or push; that is
+// gitPatchDataSource resolves the identity and content of a single patch: a
+// local file, inline diff content, or a remote host source (e.g. a GitHub
+// PR/commit). It does not clone, apply, commit, or push; that is
 // git_branch's responsibility once it exists.
-type gitPatchResource struct {
+type gitPatchDataSource struct {
 	client git.Client
 	github github.Client
 }
 
-// gitPatchResourceModel describes the resource's data model.
+// gitPatchResourceModel describes the data source's data model.
 type gitPatchResourceModel struct {
 	Id      types.String            `tfsdk:"id"`
 	Content types.String            `tfsdk:"content"`
@@ -49,16 +49,16 @@ type gitPatchGithubModel struct {
 	Sha        types.String `tfsdk:"sha"`
 }
 
-// NewGitPatchResource creates a new instance of the git_patch resource.
-func NewGitPatchResource() resource.Resource {
-	return &gitPatchResource{}
+// NewGitPatchDataSource creates a new instance of the git_patch data source.
+func NewGitPatchDataSource() datasource.DataSource {
+	return &gitPatchDataSource{}
 }
 
-func (r *gitPatchResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+func (d *gitPatchDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_patch"
 }
 
-func (r *gitPatchResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+func (d *gitPatchDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
 	if req.ProviderData == nil {
 		return
 	}
@@ -66,19 +66,19 @@ func (r *gitPatchResource) Configure(_ context.Context, req resource.ConfigureRe
 	data, ok := req.ProviderData.(*providerData)
 	if !ok {
 		resp.Diagnostics.AddError(
-			"Unexpected Resource Configure Type",
+			"Unexpected Data Source Configure Type",
 			fmt.Sprintf("Expected *providerData, got: %T. Please report this issue to the provider developers.", req.ProviderData),
 		)
 		return
 	}
 
-	r.client = data.GitClient
-	r.github = data.GithubClient
+	d.client = data.GitClient
+	d.github = data.GithubClient
 }
 
-func (r *gitPatchResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+func (d *gitPatchDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "A single patch: a local file, inline diff content, or a remote host source (e.g. a GitHub PR/commit). Exactly one of `content`, `file`, or `github` must be set. Does not clone, apply, commit, or push; that is `git_branch`'s responsibility.",
+		MarkdownDescription: "Resolves a single patch: a local file, inline diff content, or a remote host source (e.g. a GitHub PR/commit). Exactly one of `content`, `file`, or `github` must be set. Does not clone, apply, commit, or push; that is `git_branch`'s responsibility.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:            true,
@@ -90,7 +90,7 @@ func (r *gitPatchResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 			},
 			"file": schema.StringAttribute{
 				Optional:            true,
-				MarkdownDescription: "Path to a local patch file, read on create/read.",
+				MarkdownDescription: "Path to a local patch file, read on refresh.",
 			},
 			"diff": schema.StringAttribute{
 				Computed:            true,
@@ -134,10 +134,10 @@ func (r *gitPatchResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 }
 
 // ConfigValidators enforces that exactly one of content, file, or github is
-// set on the resource config.
-func (r *gitPatchResource) ConfigValidators(_ context.Context) []resource.ConfigValidator {
-	return []resource.ConfigValidator{
-		resourcevalidator.ExactlyOneOf(
+// set on the data source config.
+func (d *gitPatchDataSource) ConfigValidators(_ context.Context) []datasource.ConfigValidator {
+	return []datasource.ConfigValidator{
+		datasourcevalidator.ExactlyOneOf(
 			path.MatchRoot("content"),
 			path.MatchRoot("file"),
 			path.MatchRoot("github"),
@@ -145,7 +145,7 @@ func (r *gitPatchResource) ConfigValidators(_ context.Context) []resource.Config
 	}
 }
 
-// githubAuthFromModel converts the resource's optional auth model into a
+// githubAuthFromModel converts the data source's optional auth model into a
 // github.Auth, treating a nil or unset token as unauthenticated.
 func githubAuthFromModel(m *gitRepositoryAuthModel) github.Auth {
 	if m == nil || m.Token.IsNull() || m.Token.IsUnknown() {
@@ -158,7 +158,7 @@ func githubAuthFromModel(m *gitRepositoryAuthModel) github.Auth {
 // resolve derives diff (and, when github is set, github.sha) from whichever
 // of content, file, or github is set on model, and computes id as the hex
 // sha256 digest of the resolved diff.
-func (r *gitPatchResource) resolve(ctx context.Context, model *gitPatchResourceModel) error {
+func (d *gitPatchDataSource) resolve(ctx context.Context, model *gitPatchResourceModel) error {
 	var diff string
 
 	switch {
@@ -176,9 +176,9 @@ func (r *gitPatchResource) resolve(ctx context.Context, model *gitPatchResourceM
 		var resolution github.Resolution
 		var err error
 		if !model.Github.Pr.IsNull() && !model.Github.Pr.IsUnknown() {
-			resolution, err = r.github.ResolvePR(ctx, model.Github.Repository.ValueString(), model.Github.Pr.ValueInt64(), auth)
+			resolution, err = d.github.ResolvePR(ctx, model.Github.Repository.ValueString(), model.Github.Pr.ValueInt64(), auth)
 		} else {
-			resolution, err = r.github.ResolveCommit(ctx, model.Github.Repository.ValueString(), model.Github.Commit.ValueString(), auth)
+			resolution, err = d.github.ResolveCommit(ctx, model.Github.Repository.ValueString(), model.Github.Commit.ValueString(), auth)
 		}
 		if err != nil {
 			return fmt.Errorf("resolving github source: %w", err)
@@ -198,53 +198,20 @@ func (r *gitPatchResource) resolve(ctx context.Context, model *gitPatchResourceM
 	return nil
 }
 
-func (r *gitPatchResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+func (d *gitPatchDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
 	var model gitPatchResourceModel
-	resp.Diagnostics.Append(req.Plan.Get(ctx, &model)...)
+	resp.Diagnostics.Append(req.Config.Get(ctx, &model)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	if err := r.resolve(ctx, &model); err != nil {
-		resp.Diagnostics.AddError("Error Resolving Patch", err.Error())
+	if err := d.resolve(ctx, &model); err != nil {
+		resp.Diagnostics.AddError("Unable to Resolve Patch", err.Error())
 		return
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &model)...)
-}
-
-func (r *gitPatchResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
-	var model gitPatchResourceModel
-	resp.Diagnostics.Append(req.State.Get(ctx, &model)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-
-	if err := r.resolve(ctx, &model); err != nil {
-		resp.Diagnostics.AddError("Error Resolving Patch", err.Error())
-		return
-	}
-
-	resp.Diagnostics.Append(resp.State.Set(ctx, &model)...)
-}
-
-func (r *gitPatchResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var model gitPatchResourceModel
-	resp.Diagnostics.Append(req.Plan.Get(ctx, &model)...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	if err := r.resolve(ctx, &model); err != nil {
-		resp.Diagnostics.AddError("Error Resolving Patch", err.Error())
-		return
-	}
-
-	resp.Diagnostics.Append(resp.State.Set(ctx, &model)...)
-}
-
-func (r *gitPatchResource) Delete(_ context.Context, _ resource.DeleteRequest, _ *resource.DeleteResponse) {
-	// No external side effects: the resource never clones, applies, or
-	// pushes anything. The framework removes the resource from state
-	// automatically after a Delete that adds no diagnostics errors.
 }
