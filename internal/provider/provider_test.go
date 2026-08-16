@@ -73,7 +73,7 @@ var _ = Describe("GitProvider", func() {
 // reaching a local repository fixture via git_repository's Create, which
 // calls Client.LsRemote under the hood.
 func TestAccProvider_gitImplementation(t *testing.T) {
-	repoPath := newTestRepo()
+	repoPath := newTestRepo(t)
 	repoURL := "file://" + repoPath
 
 	tfresource.Test(t, tfresource.TestCase{

@@ -236,8 +236,8 @@ func TestAccGitRepository_basic(t *testing.T) {
 	// repo fixtures instead of the unreachable example.com URLs the test
 	// used before that behavior existed. Two distinct fixtures are used
 	// so the update step (repo1 -> repo2) exercises a real url change.
-	repo1URL := "file://" + newTestRepo()
-	repo2URL := "file://" + newTestRepo()
+	repo1URL := "file://" + newTestRepo(t)
+	repo2URL := "file://" + newTestRepo(t)
 
 	resource.Test(t, resource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,

@@ -97,7 +97,7 @@ func parseLsRemote(output string) []providergit.Ref {
 			continue
 		}
 
-		parts := strings.SplitN(line, "\t", 2)
+		parts := strings.SplitN(strings.TrimRight(line, "\r"), "\t", 2)
 		if len(parts) != 2 {
 			continue
 		}

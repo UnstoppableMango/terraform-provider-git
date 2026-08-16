@@ -5,25 +5,27 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"testing"
 )
 
 // newTestRepo creates a temporary, non-bare git repository with a single
 // commit and returns its filesystem path. It uses repo-local git config
 // (not global) so the commit doesn't depend on the host's git identity
-// being configured.
+// being configured. The directory is removed via t.Cleanup.
 //
 // Shared by the git_repository resource tests and the provider-level
 // acceptance tests, both of which need a real, reachable local repository
-// now that Create/Read/Update call LsRemote. It deliberately avoids
-// Ginkgo/Gomega so it can be called from both Ginkgo specs and the plain
-// testing.T-based acceptance tests (e.g. TestAccGitRepository_basic) in
-// this package, panicking on setup failure rather than depending on a
-// framework-specific failure handler.
-func newTestRepo() string {
+// now that Create/Read/Update call LsRemote.
+func newTestRepo(t *testing.T) string {
+	t.Helper()
+
 	dir, err := os.MkdirTemp("", "git-repo-test-*")
 	if err != nil {
 		panic(fmt.Sprintf("newTestRepo: MkdirTemp: %v", err))
 	}
+	t.Cleanup(func() {
+		os.RemoveAll(dir)
+	})
 
 	runGit(dir, "init")
 	runGit(dir, "config", "user.name", "Test User")
