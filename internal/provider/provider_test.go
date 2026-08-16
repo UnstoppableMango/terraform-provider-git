@@ -70,7 +70,7 @@ var _ = Describe("GitProvider", func() {
 // isn't possible. Instead, this drives the real provider through the
 // protocol and proves each git_implementation value (omitted/default,
 // "go-git", and "exec") produces a working client backend by successfully
-// reaching a local repository fixture via git_repository's Create, which
+// reaching a local repository fixture via git_repository's Read, which
 // calls Client.LsRemote under the hood.
 func TestAccProvider_gitImplementation(t *testing.T) {
 	repoPath := newTestRepo(t)
@@ -81,7 +81,7 @@ func TestAccProvider_gitImplementation(t *testing.T) {
 		Steps: []tfresource.TestStep{
 			{
 				Config: fmt.Sprintf(`
-resource "git_repository" "default_impl" {
+data "git_repository" "default_impl" {
   url = %[1]q
 }
 
@@ -90,7 +90,7 @@ provider "git" {
   git_implementation = "go-git"
 }
 
-resource "git_repository" "gogit_impl" {
+data "git_repository" "gogit_impl" {
   provider = git.gogit_impl
   url      = %[1]q
 }
@@ -100,15 +100,15 @@ provider "git" {
   git_implementation = "exec"
 }
 
-resource "git_repository" "exec_impl" {
+data "git_repository" "exec_impl" {
   provider = git.exec_impl
   url      = %[1]q
 }
 `, repoURL),
 				Check: tfresource.ComposeAggregateTestCheckFunc(
-					tfresource.TestCheckResourceAttr("git_repository.default_impl", "id", repoURL),
-					tfresource.TestCheckResourceAttr("git_repository.gogit_impl", "id", repoURL),
-					tfresource.TestCheckResourceAttr("git_repository.exec_impl", "id", repoURL),
+					tfresource.TestCheckResourceAttr("data.git_repository.default_impl", "id", repoURL),
+					tfresource.TestCheckResourceAttr("data.git_repository.gogit_impl", "id", repoURL),
+					tfresource.TestCheckResourceAttr("data.git_repository.exec_impl", "id", repoURL),
 				),
 			},
 		},
