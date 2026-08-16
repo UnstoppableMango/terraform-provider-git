@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/hashicorp/terraform-plugin-framework/datasource"
+	dschema "github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
-	fwresource "github.com/hashicorp/terraform-plugin-framework/resource"
-	rschema "github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
@@ -19,9 +19,9 @@ import (
 )
 
 // repoModel mirrors the tfsdk tags of the unexported
-// gitRepositoryResourceModel in git_repository_resource.go, so tests in this
-// external provider_test package can build tfsdk.Plan/State values by hand
-// without access to the unexported type.
+// gitRepositoryDataSourceModel in git_repository_data_source.go, so tests in
+// this external provider_test package can build tfsdk.Config/State values by
+// hand without access to the unexported type.
 type repoModel struct {
 	Id   types.String `tfsdk:"id"`
 	Url  types.String `tfsdk:"url"`
@@ -33,30 +33,30 @@ type authModel struct {
 	Token types.String `tfsdk:"token"`
 }
 
-var _ = Describe("GitRepositoryResource", func() {
-	var res fwresource.Resource
+var _ = Describe("GitRepositoryDataSource", func() {
+	var ds datasource.DataSource
 
 	BeforeEach(func() {
-		res = provider.NewGitRepositoryResource()
+		ds = provider.NewGitRepositoryDataSource()
 	})
 
 	Describe("Metadata", func() {
 		It("derives the type name from the provider type name", func() {
-			req := fwresource.MetadataRequest{ProviderTypeName: "git"}
-			resp := &fwresource.MetadataResponse{}
+			req := datasource.MetadataRequest{ProviderTypeName: "git"}
+			resp := &datasource.MetadataResponse{}
 
-			res.Metadata(context.Background(), req, resp)
+			ds.Metadata(context.Background(), req, resp)
 
 			Expect(resp.TypeName).To(Equal("git_repository"))
 		})
 	})
 
 	Describe("Schema", func() {
-		var schemaResp fwresource.SchemaResponse
+		var schemaResp datasource.SchemaResponse
 
 		BeforeEach(func() {
-			schemaResp = fwresource.SchemaResponse{}
-			res.Schema(context.Background(), fwresource.SchemaRequest{}, &schemaResp)
+			schemaResp = datasource.SchemaResponse{}
+			ds.Schema(context.Background(), datasource.SchemaRequest{}, &schemaResp)
 		})
 
 		It("produces a schema with no errors", func() {
@@ -102,7 +102,7 @@ var _ = Describe("GitRepositoryResource", func() {
 			It("has a validator restricting it to known host types", func() {
 				a := schemaResp.Schema.Attributes["host"]
 
-				hostAttr, ok := a.(rschema.StringAttribute)
+				hostAttr, ok := a.(dschema.StringAttribute)
 				Expect(ok).To(BeTrue(), "expected host to be a schema.StringAttribute")
 				Expect(hostAttr.Validators).NotTo(BeEmpty(), "expected host to have at least one validator (e.g. stringvalidator.OneOf)")
 			})
@@ -114,17 +114,17 @@ var _ = Describe("GitRepositoryResource", func() {
 				Expect(a.IsRequired()).To(BeFalse())
 				Expect(a.IsOptional()).To(BeTrue())
 
-				_, ok := a.(rschema.NestedAttribute)
+				_, ok := a.(dschema.NestedAttribute)
 				Expect(ok).To(BeTrue(), "expected auth to be a nested attribute type")
 
-				_, ok = a.(rschema.SingleNestedAttribute)
+				_, ok = a.(dschema.SingleNestedAttribute)
 				Expect(ok).To(BeTrue(), "expected auth to be a schema.SingleNestedAttribute")
 			})
 
 			It("has an optional, sensitive token child attribute", func() {
 				a := schemaResp.Schema.Attributes["auth"]
 
-				nested, ok := a.(rschema.NestedAttribute)
+				nested, ok := a.(dschema.NestedAttribute)
 				Expect(ok).To(BeTrue(), "expected auth to be a nested attribute type")
 
 				tokenAttr, ok := nested.GetNestedObject().GetAttributes()["token"]
@@ -136,82 +136,37 @@ var _ = Describe("GitRepositoryResource", func() {
 		})
 	})
 
-	// Without Configure ever being called, r.client stays nil (its zero
-	// value). Create/Read/Update guard on r.client != nil before calling
-	// LsRemote, so with no client configured they must behave exactly
-	// like the old unconditional passthrough (id mirrors url, Read is a
-	// no-op) instead of panicking on a nil interface call. This is the
-	// key regression test for that guard.
+	// Without Configure ever being called, d.client stays nil (its zero
+	// value). Read guards on d.client != nil before calling LsRemote, so
+	// with no client configured it must behave like an unconditional
+	// passthrough (id mirrors url) instead of panicking on a nil interface
+	// call. This is the key regression test for that guard.
 	Describe("without a configured client", func() {
-		var repoSchema rschema.Schema
+		var repoSchema dschema.Schema
 
 		BeforeEach(func() {
-			schemaResp := fwresource.SchemaResponse{}
-			res.Schema(context.Background(), fwresource.SchemaRequest{}, &schemaResp)
+			schemaResp := datasource.SchemaResponse{}
+			ds.Schema(context.Background(), datasource.SchemaRequest{}, &schemaResp)
 			repoSchema = schemaResp.Schema
 		})
 
-		It("Create sets id to url without panicking or erroring", func() {
+		It("Read sets id to url without panicking or erroring", func() {
 			const url = "https://example.com/repo.git"
 
-			plan := tfsdk.Plan{Schema: repoSchema}
-			Expect(plan.Set(context.Background(), &repoModel{
+			// tfsdk.Config has no Set method (unlike Plan/State), so build
+			// the raw value via a throwaway State and reuse it.
+			built := tfsdk.State{Schema: repoSchema}
+			Expect(built.Set(context.Background(), &repoModel{
 				Url:  types.StringValue(url),
 				Host: types.StringNull(),
 			}).HasError()).To(BeFalse())
+			config := tfsdk.Config{Schema: repoSchema, Raw: built.Raw}
 
-			req := fwresource.CreateRequest{Plan: plan}
-			resp := &fwresource.CreateResponse{State: tfsdk.State{Schema: repoSchema}}
-
-			Expect(func() {
-				res.Create(context.Background(), req, resp)
-			}).NotTo(Panic())
-			Expect(resp.Diagnostics.HasError()).To(BeFalse())
-
-			var got repoModel
-			Expect(resp.State.Get(context.Background(), &got).HasError()).To(BeFalse())
-			Expect(got.Id.ValueString()).To(Equal(url))
-			Expect(got.Url.ValueString()).To(Equal(url))
-		})
-
-		It("Read passes the state through unchanged without panicking or erroring", func() {
-			const url = "https://example.com/repo.git"
-
-			state := tfsdk.State{Schema: repoSchema}
-			Expect(state.Set(context.Background(), &repoModel{
-				Id:   types.StringValue(url),
-				Url:  types.StringValue(url),
-				Host: types.StringNull(),
-			}).HasError()).To(BeFalse())
-
-			req := fwresource.ReadRequest{State: state}
-			resp := &fwresource.ReadResponse{State: tfsdk.State{Schema: repoSchema}}
+			req := datasource.ReadRequest{Config: config}
+			resp := &datasource.ReadResponse{State: tfsdk.State{Schema: repoSchema}}
 
 			Expect(func() {
-				res.Read(context.Background(), req, resp)
-			}).NotTo(Panic())
-			Expect(resp.Diagnostics.HasError()).To(BeFalse())
-
-			var got repoModel
-			Expect(resp.State.Get(context.Background(), &got).HasError()).To(BeFalse())
-			Expect(got.Id.ValueString()).To(Equal(url))
-			Expect(got.Url.ValueString()).To(Equal(url))
-		})
-
-		It("Update sets id to the new url without panicking or erroring", func() {
-			const url = "https://example.com/other-repo.git"
-
-			plan := tfsdk.Plan{Schema: repoSchema}
-			Expect(plan.Set(context.Background(), &repoModel{
-				Url:  types.StringValue(url),
-				Host: types.StringNull(),
-			}).HasError()).To(BeFalse())
-
-			req := fwresource.UpdateRequest{Plan: plan}
-			resp := &fwresource.UpdateResponse{State: tfsdk.State{Schema: repoSchema}}
-
-			Expect(func() {
-				res.Update(context.Background(), req, resp)
+				ds.Read(context.Background(), req, resp)
 			}).NotTo(Panic())
 			Expect(resp.Diagnostics.HasError()).To(BeFalse())
 
@@ -230,12 +185,12 @@ var testAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServe
 }
 
 func TestAccGitRepository_basic(t *testing.T) {
-	// Create now calls LsRemote against the configured url (see the
-	// r.client != nil guard in git_repository_resource.go), so the url
+	// Read now calls LsRemote against the configured url (see the
+	// d.client != nil guard in git_repository_data_source.go), so the url
 	// must point at something actually reachable. Point it at local git
 	// repo fixtures instead of the unreachable example.com URLs the test
-	// used before that behavior existed. Two distinct fixtures are used
-	// so the update step (repo1 -> repo2) exercises a real url change.
+	// used before that behavior existed. Two distinct fixtures are used so
+	// the second step exercises a fresh lookup (repo1 -> repo2).
 	repo1URL := "file://" + newTestRepo(t)
 	repo2URL := "file://" + newTestRepo(t)
 
@@ -243,27 +198,22 @@ func TestAccGitRepository_basic(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: fmt.Sprintf(`resource "git_repository" "test" {
+				Config: fmt.Sprintf(`data "git_repository" "test" {
   url = %[1]q
 }`, repo1URL),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("git_repository.test", "url", repo1URL),
-					resource.TestCheckResourceAttr("git_repository.test", "id", repo1URL),
+					resource.TestCheckResourceAttr("data.git_repository.test", "url", repo1URL),
+					resource.TestCheckResourceAttr("data.git_repository.test", "id", repo1URL),
 				),
 			},
 			{
-				Config: fmt.Sprintf(`resource "git_repository" "test" {
+				Config: fmt.Sprintf(`data "git_repository" "test" {
   url = %[1]q
 }`, repo2URL),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("git_repository.test", "url", repo2URL),
-					resource.TestCheckResourceAttr("git_repository.test", "id", repo2URL),
+					resource.TestCheckResourceAttr("data.git_repository.test", "url", repo2URL),
+					resource.TestCheckResourceAttr("data.git_repository.test", "id", repo2URL),
 				),
-			},
-			{
-				ResourceName:      "git_repository.test",
-				ImportState:       true,
-				ImportStateVerify: true,
 			},
 		},
 	})

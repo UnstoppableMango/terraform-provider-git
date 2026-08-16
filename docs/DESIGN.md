@@ -11,11 +11,12 @@ Details behind [GOALS.md](../GOALS.md).
 
 ## Resource model
 
-Three resource types, each with an independent lifecycle:
+`git_repository` is a data source, not a resource: it references an existing repository and resolves connection details (URL, host type, auth) used by other resources, but has no lifecycle of its own. This provider never creates or deletes repositories on the host.
 
-1. `git_repository` - references an existing repository. Reference-only: this provider never creates or deletes repositories on the host. It resolves connection details (URL, host type, auth) used by other resources.
-2. `git_branch` - tracks a branch within a `git_repository`. Declares the base ref to follow and the ordered list of `git_patch` resources that make up its stack.
-3. `git_patch` - a single patch with its own lifecycle, referenced by ID from a `git_branch`'s ordered patch list. A patch can come from a local file, inline diff content, or a remote source (e.g. a GitHub commit/PR).
+Two resource types on top of it, each with an independent lifecycle:
+
+1. `git_branch` - tracks a branch within a `git_repository`. Declares the base ref to follow and the ordered list of `git_patch` resources that make up its stack.
+2. `git_patch` - a single patch with its own lifecycle, referenced by ID from a `git_branch`'s ordered patch list. A patch can come from a local file, inline diff content, or a remote source (e.g. a GitHub commit/PR).
 
 Patch order is an explicit ordered list on `git_branch` (analogous to a quilt series file), not inferred from a dependency graph.
 
