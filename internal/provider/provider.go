@@ -13,12 +13,14 @@ import (
 
 	"github.com/UnstoppableMango/terraform-provider-git/internal/git"
 	"github.com/UnstoppableMango/terraform-provider-git/internal/git/execgit"
+	"github.com/UnstoppableMango/terraform-provider-git/internal/git/github"
 	"github.com/UnstoppableMango/terraform-provider-git/internal/git/gogit"
 )
 
 // providerData is made available to resources via ConfigureRequest.ProviderData.
 type providerData struct {
-	GitClient git.Client
+	GitClient    git.Client
+	GithubClient github.Client
 }
 
 // gitProviderModel describes the provider-level configuration data model.
@@ -85,5 +87,7 @@ func (p *gitProvider) DataSources(_ context.Context) []func() datasource.DataSou
 }
 
 func (p *gitProvider) Resources(_ context.Context) []func() resource.Resource {
-	return []func() resource.Resource{}
+	return []func() resource.Resource{
+		NewGitPatchResource,
+	}
 }

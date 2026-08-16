@@ -1,11 +1,14 @@
 package provider_test
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/UnstoppableMango/terraform-provider-git/internal/git/github"
 )
 
 // newTestRepo creates a temporary, non-bare git repository with a single
@@ -50,4 +53,28 @@ func runGit(dir string, args ...string) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		panic(fmt.Sprintf("newTestRepo: git %v: %v: %s", args, err, out))
 	}
+}
+
+// fakeGitHubClient is a test double for github.Client. Each method is
+// backed by a configurable function field; a nil field panics if called,
+// so tests only need to set the functions relevant to what they exercise.
+type fakeGitHubClient struct {
+	resolvePRFunc     func(ctx context.Context, repository string, pr int64, auth github.Auth) (github.Resolution, error)
+	resolveCommitFunc func(ctx context.Context, repository string, sha string, auth github.Auth) (github.Resolution, error)
+}
+
+var _ github.Client = (*fakeGitHubClient)(nil)
+
+func (f *fakeGitHubClient) ResolvePR(ctx context.Context, repository string, pr int64, auth github.Auth) (github.Resolution, error) {
+	if f.resolvePRFunc == nil {
+		panic("fakeGitHubClient: ResolvePR called but resolvePRFunc is nil")
+	}
+	return f.resolvePRFunc(ctx, repository, pr, auth)
+}
+
+func (f *fakeGitHubClient) ResolveCommit(ctx context.Context, repository string, sha string, auth github.Auth) (github.Resolution, error) {
+	if f.resolveCommitFunc == nil {
+		panic("fakeGitHubClient: ResolveCommit called but resolveCommitFunc is nil")
+	}
+	return f.resolveCommitFunc(ctx, repository, sha, auth)
 }
