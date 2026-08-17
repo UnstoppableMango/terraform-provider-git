@@ -88,5 +88,7 @@ func (p *gitProvider) DataSources(_ context.Context) []func() datasource.DataSou
 }
 
 func (p *gitProvider) Resources(_ context.Context) []func() resource.Resource {
-	return []func() resource.Resource{}
+	return []func() resource.Resource{
+		NewGitBranchResource,
+	}
 }
