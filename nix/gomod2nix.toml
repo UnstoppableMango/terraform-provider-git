@@ -73,6 +73,14 @@ schema = 3
     version = 'v0.7.0'
     hash = 'sha256-JbxZFBFGCh/Rj5XZ1vG94V2x7c18L8XKB0N9ZD5F2rM='
 
+  [mod.'github.com/google/go-github/v75']
+    version = 'v75.0.0'
+    hash = 'sha256-dLZZ2CSK8+V8hK8oy0fDJQWd3iTomV117sX+XtEk7bE='
+
+  [mod.'github.com/google/go-querystring']
+    version = 'v1.1.0'
+    hash = 'sha256-itsKgKghuX26czU79cK6C2n+lc27jm5Dw1XbIRgwZJY='
+
   [mod.'github.com/google/pprof']
     version = 'v0.0.0-20260402051712-545e8a4df936'
     hash = 'sha256-DBaCmfVLei1HComa+xJN76IpPFTUaDfUEhc1U9gmW8g='

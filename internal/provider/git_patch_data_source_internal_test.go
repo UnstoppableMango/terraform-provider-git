@@ -28,29 +28,29 @@ import (
 )
 
 type internalFakeGitHubClient struct {
-	resolvePRFunc     func(ctx context.Context, repository string, pr int64, auth github.Auth) (github.Resolution, error)
-	resolveCommitFunc func(ctx context.Context, repository string, sha string, auth github.Auth) (github.Resolution, error)
+	resolvePRFunc     func(ctx context.Context, repository string, pr int64, token string) (github.Resolution, error)
+	resolveCommitFunc func(ctx context.Context, repository, sha, token string) (github.Resolution, error)
 
 	gotRepository string
 	gotPr         int64
 	gotCommit     string
-	gotAuth       github.Auth
+	gotToken      string
 }
 
 var _ github.Client = (*internalFakeGitHubClient)(nil)
 
-func (f *internalFakeGitHubClient) ResolvePR(ctx context.Context, repository string, pr int64, auth github.Auth) (github.Resolution, error) {
+func (f *internalFakeGitHubClient) ResolvePR(ctx context.Context, repository string, pr int64, token string) (github.Resolution, error) {
 	f.gotRepository = repository
 	f.gotPr = pr
-	f.gotAuth = auth
-	return f.resolvePRFunc(ctx, repository, pr, auth)
+	f.gotToken = token
+	return f.resolvePRFunc(ctx, repository, pr, token)
 }
 
-func (f *internalFakeGitHubClient) ResolveCommit(ctx context.Context, repository string, sha string, auth github.Auth) (github.Resolution, error) {
+func (f *internalFakeGitHubClient) ResolveCommit(ctx context.Context, repository, sha, token string) (github.Resolution, error) {
 	f.gotRepository = repository
 	f.gotCommit = sha
-	f.gotAuth = auth
-	return f.resolveCommitFunc(ctx, repository, sha, auth)
+	f.gotToken = token
+	return f.resolveCommitFunc(ctx, repository, sha, token)
 }
 
 func sha256HexInternal(s string) string {
@@ -90,7 +90,7 @@ var _ = Describe("gitPatchDataSource github source", func() {
 			)
 
 			fake := &internalFakeGitHubClient{
-				resolvePRFunc: func(ctx context.Context, repository string, pr int64, auth github.Auth) (github.Resolution, error) {
+				resolvePRFunc: func(ctx context.Context, repository string, pr int64, token string) (github.Resolution, error) {
 					return github.Resolution{SHA: resolvedSHA, Diff: resolvedDiff}, nil
 				},
 			}
@@ -126,7 +126,7 @@ var _ = Describe("gitPatchDataSource github source", func() {
 
 			Expect(fake.gotRepository).To(Equal(repository))
 			Expect(fake.gotPr).To(Equal(prNumber))
-			Expect(fake.gotAuth).To(Equal(github.Auth{Token: "tok-123"}))
+			Expect(fake.gotToken).To(Equal("tok-123"))
 		})
 	})
 
@@ -139,7 +139,7 @@ var _ = Describe("gitPatchDataSource github source", func() {
 			)
 
 			fake := &internalFakeGitHubClient{
-				resolveCommitFunc: func(ctx context.Context, repository string, sha string, auth github.Auth) (github.Resolution, error) {
+				resolveCommitFunc: func(ctx context.Context, repository string, sha string, token string) (github.Resolution, error) {
 					return github.Resolution{SHA: sha, Diff: resolvedDiff}, nil
 				},
 			}
@@ -173,7 +173,7 @@ var _ = Describe("gitPatchDataSource github source", func() {
 
 			Expect(fake.gotRepository).To(Equal(repository))
 			Expect(fake.gotCommit).To(Equal(commitSHA))
-			Expect(fake.gotAuth).To(Equal(github.Auth{}))
+			Expect(fake.gotToken).To(Equal(""))
 		})
 	})
 
@@ -182,7 +182,7 @@ var _ = Describe("gitPatchDataSource github source", func() {
 			const sharedDiff = "diff --git a/shared b/shared\n+identical\n"
 
 			fake := &internalFakeGitHubClient{
-				resolveCommitFunc: func(ctx context.Context, repository string, sha string, auth github.Auth) (github.Resolution, error) {
+				resolveCommitFunc: func(ctx context.Context, repository string, sha string, token string) (github.Resolution, error) {
 					return github.Resolution{SHA: sha, Diff: sharedDiff}, nil
 				},
 			}

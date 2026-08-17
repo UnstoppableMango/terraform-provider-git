@@ -2,39 +2,27 @@ package github
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
 	"strings"
+
+	gogithub "github.com/google/go-github/v75/github"
 )
-
-// defaultBaseURL is the real GitHub REST API base URL used unless overridden
-// via WithBaseURL.
-const defaultBaseURL = "https://api.github.com"
-
-// diffAccept is the Accept header value that makes the GitHub commits
-// endpoint return a raw unified diff instead of a JSON commit object.
-const diffAccept = "application/vnd.github.v3.diff"
 
 // Option configures a client constructed via New.
 type Option func(*client)
 
 // WithBaseURL overrides the API base URL. Intended for tests to point the
 // client at a fake server.
-func WithBaseURL(url string) Option {
+func WithBaseURL(u string) Option {
 	return func(c *client) {
-		c.baseURL = url
+		c.baseURL = u
 	}
 }
 
-// New creates a Client that talks to the GitHub REST API.
+// New creates a Client that talks to the GitHub REST API via go-github.
 func New(opts ...Option) Client {
-	c := &client{
-		baseURL:    defaultBaseURL,
-		httpClient: http.DefaultClient,
-	}
+	c := &client{}
 
 	for _, opt := range opts {
 		opt(c)
@@ -44,101 +32,89 @@ func New(opts ...Option) Client {
 }
 
 type client struct {
-	baseURL    string
-	httpClient *http.Client
+	baseURL string
 }
 
 var _ Client = (*client)(nil)
 
-type pullRequestResponse struct {
-	Head struct {
-		SHA string `json:"sha"`
-	} `json:"head"`
-}
-
-func (c *client) ResolvePR(ctx context.Context, repository string, pr int64, auth Auth) (Resolution, error) {
-	repoPath, err := escapeRepository(repository)
+func (c *client) ResolvePR(ctx context.Context, repository string, pr int64, token string) (Resolution, error) {
+	owner, name, err := splitRepository(repository)
 	if err != nil {
 		return Resolution{}, err
 	}
 
-	reqURL := fmt.Sprintf("%s/repos/%s/pulls/%d", c.baseURL, repoPath, pr)
+	gh, err := c.newGitHub(token)
+	if err != nil {
+		return Resolution{}, err
+	}
 
-	body, err := c.get(ctx, reqURL, "", auth)
+	pull, _, err := gh.PullRequests.Get(ctx, owner, name, int(pr))
 	if err != nil {
 		return Resolution{}, fmt.Errorf("resolving pull request: %w", err)
 	}
 
-	var pull pullRequestResponse
-	if err := json.Unmarshal(body, &pull); err != nil {
-		return Resolution{}, fmt.Errorf("parsing pull request response: %w", err)
-	}
-
-	if pull.Head.SHA == "" {
+	sha := pull.GetHead().GetSHA()
+	if sha == "" {
 		return Resolution{}, fmt.Errorf("pull request response missing head commit sha")
 	}
 
-	return c.ResolveCommit(ctx, repository, pull.Head.SHA, auth)
-}
-
-func (c *client) ResolveCommit(ctx context.Context, repository string, sha string, auth Auth) (Resolution, error) {
-	repoPath, err := escapeRepository(repository)
-	if err != nil {
-		return Resolution{}, err
-	}
-
-	reqURL := fmt.Sprintf("%s/repos/%s/commits/%s", c.baseURL, repoPath, url.PathEscape(sha))
-
-	diff, err := c.get(ctx, reqURL, diffAccept, auth)
+	diff, _, err := gh.PullRequests.GetRaw(ctx, owner, name, int(pr), gogithub.RawOptions{Type: gogithub.Diff})
 	if err != nil {
 		return Resolution{}, fmt.Errorf("fetching diff: %w", err)
 	}
 
-	return Resolution{SHA: sha, Diff: string(diff)}, nil
+	return Resolution{SHA: sha, Diff: diff}, nil
 }
 
-// escapeRepository validates that repository is in owner/name form and
-// returns it with each segment percent-escaped for safe use in a URL path.
-func escapeRepository(repository string) (string, error) {
+func (c *client) ResolveCommit(ctx context.Context, repository, sha, token string) (Resolution, error) {
+	owner, name, err := splitRepository(repository)
+	if err != nil {
+		return Resolution{}, err
+	}
+
+	gh, err := c.newGitHub(token)
+	if err != nil {
+		return Resolution{}, err
+	}
+
+	diff, _, err := gh.Repositories.GetCommitRaw(ctx, owner, name, sha, gogithub.RawOptions{Type: gogithub.Diff})
+	if err != nil {
+		return Resolution{}, fmt.Errorf("fetching diff: %w", err)
+	}
+
+	return Resolution{SHA: sha, Diff: diff}, nil
+}
+
+// newGitHub builds a go-github client, applying the optional base URL override
+// and bearer token authentication when token is non-empty.
+func (c *client) newGitHub(token string) (*gogithub.Client, error) {
+	gh := gogithub.NewClient(nil)
+
+	if token != "" {
+		gh = gh.WithAuthToken(token)
+	}
+
+	if c.baseURL != "" {
+		base, err := url.Parse(c.baseURL)
+		if err != nil {
+			return nil, fmt.Errorf("parsing base url: %w", err)
+		}
+		if !strings.HasSuffix(base.Path, "/") {
+			base.Path += "/"
+		}
+		gh.BaseURL = base
+	}
+
+	return gh, nil
+}
+
+// splitRepository validates that repository is in owner/name form and returns
+// its owner and name segments.
+func splitRepository(repository string) (owner, name string, err error) {
 	owner, name, ok := strings.Cut(repository, "/")
 	if !ok || owner == "" || name == "" || strings.Contains(name, "/") {
-		return "", fmt.Errorf("repository must be in owner/name form, got %q", repository)
+		return "", "", fmt.Errorf("repository must be in owner/name form, got %q", repository)
 	}
 
-	return url.PathEscape(owner) + "/" + url.PathEscape(name), nil
-}
-
-// get issues a GET request to url, optionally setting an Accept header, and
-// returns the raw response body. It returns an error whose message includes
-// the response status code for any non-2xx response.
-func (c *client) get(ctx context.Context, url string, accept string, auth Auth) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	if accept != "" {
-		req.Header.Set("Accept", accept)
-	}
-
-	if auth.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+auth.Token)
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("unexpected response status %d from %s: %s", resp.StatusCode, url, string(body))
-	}
-
-	return body, nil
+	return owner, name, nil
 }
