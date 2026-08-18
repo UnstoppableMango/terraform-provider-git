@@ -22,9 +22,9 @@ var _ resource.ResourceWithConfigure = &gitBranchResource{}
 var _ resource.ResourceWithImportState = &gitBranchResource{}
 
 // gitBranchResource tracks a branch within a repository: the base ref it
-// follows, and (in a future version) the ordered patch stack applied on top
-// of it. This version does not push or otherwise mutate the remote; it only
-// resolves and tracks the observed base ref.
+// follows, and the ordered patch stack applied on top of it. When patches
+// are set, Create/Update apply them via the configured git.Client and
+// force-push the result to the branch on the remote.
 type gitBranchResource struct {
 	client git.Client
 }
@@ -46,6 +46,7 @@ type gitBranchResourceModel struct {
 	BaseRef     types.String             `tfsdk:"base_ref"`
 	BaseSha     types.String             `tfsdk:"base_sha"`
 	ResolvedRef types.String             `tfsdk:"resolved_ref"`
+	Patches     types.List               `tfsdk:"patches"`
 }
 
 // NewGitBranchResource creates a new instance of the git_branch resource.
@@ -97,7 +98,7 @@ func resolveBranchRef(ctx context.Context, client git.Client, url string, auth g
 
 func (r *gitBranchResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Tracks a branch's base ref within a repository. This version does not create, push, or delete anything on the remote; it only resolves and tracks the observed base ref.",
+		MarkdownDescription: "Tracks a branch's base ref within a repository, and optionally an ordered patch stack applied on top of it. When `patches` is set, the resulting commits are force-pushed to the branch on the remote; otherwise this resource only resolves and tracks the observed base ref.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:            true,
@@ -153,6 +154,11 @@ func (r *gitBranchResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 				Computed:            true,
 				MarkdownDescription: "Resolved commit hash the branch currently tracks.",
 			},
+			"patches": schema.ListAttribute{
+				ElementType:         types.StringType,
+				Optional:            true,
+				MarkdownDescription: "Ordered list of patch diffs applied on top of base_ref, in the spirit of quilt push. When set, the resulting commits are force-pushed to the branch on the remote.",
+			},
 		},
 	}
 }
@@ -160,15 +166,59 @@ func (r *gitBranchResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 // resolveModel resolves model's base_ref against its repository and updates
 // base_sha/resolved_ref in place. On error it returns the error unmodified
 // so callers can decide how to surface it.
-func (r *gitBranchResource) resolveModel(ctx context.Context, model *gitBranchResourceModel) error {
+//
+// When model.Patches is non-empty and apply is true, the patch stack is
+// applied on top of the resolved base ref and force-pushed to the branch via
+// r.client.ApplyPatches, and resolved_ref is set to the resulting SHA. This
+// only happens on Create/Update (apply=true); Read (apply=false) never
+// mutates the remote, and instead resolves resolved_ref to the branch's
+// actual current tip on the remote, reflecting real drift.
+//
+// When model.Patches is empty, behavior is unchanged from before patches
+// existed: resolved_ref is set equal to base_sha.
+func (r *gitBranchResource) resolveModel(ctx context.Context, model *gitBranchResourceModel, apply bool) error {
 	auth := authFromModel(model.Repository.Host, model.Repository.Auth)
-	hash, err := resolveBranchRef(ctx, r.client, model.Repository.Url.ValueString(), auth, model.BaseRef.ValueString())
+	url := model.Repository.Url.ValueString()
+
+	hash, err := resolveBranchRef(ctx, r.client, url, auth, model.BaseRef.ValueString())
+	if err != nil {
+		return err
+	}
+	model.BaseSha = types.StringValue(hash)
+
+	var patches []string
+	if !model.Patches.IsNull() && !model.Patches.IsUnknown() {
+		if diags := model.Patches.ElementsAs(ctx, &patches, false); diags.HasError() {
+			return fmt.Errorf("reading patches: %v", diags)
+		}
+	}
+
+	if len(patches) == 0 {
+		model.ResolvedRef = types.StringValue(hash)
+		return nil
+	}
+
+	if !apply {
+		tip, err := resolveBranchRef(ctx, r.client, url, auth, model.Name.ValueString())
+		if err != nil {
+			return err
+		}
+		model.ResolvedRef = types.StringValue(tip)
+		return nil
+	}
+
+	result, err := r.client.ApplyPatches(ctx, git.ApplyPatchesRequest{
+		URL:     url,
+		Auth:    auth,
+		Branch:  model.Name.ValueString(),
+		BaseRef: hash,
+		Patches: patches,
+	})
 	if err != nil {
 		return err
 	}
 
-	model.BaseSha = types.StringValue(hash)
-	model.ResolvedRef = types.StringValue(hash)
+	model.ResolvedRef = types.StringValue(result.ResolvedSHA)
 	return nil
 }
 
@@ -180,7 +230,7 @@ func (r *gitBranchResource) Create(ctx context.Context, req resource.CreateReque
 		return
 	}
 
-	if err := r.resolveModel(ctx, &model); err != nil {
+	if err := r.resolveModel(ctx, &model, true); err != nil {
 		resp.Diagnostics.AddError("Unable to Resolve Base Ref", err.Error())
 		return
 	}
@@ -198,7 +248,7 @@ func (r *gitBranchResource) Read(ctx context.Context, req resource.ReadRequest, 
 		return
 	}
 
-	if err := r.resolveModel(ctx, &model); err != nil {
+	if err := r.resolveModel(ctx, &model, false); err != nil {
 		resp.State.RemoveResource(ctx)
 		return
 	}
@@ -214,7 +264,7 @@ func (r *gitBranchResource) Update(ctx context.Context, req resource.UpdateReque
 		return
 	}
 
-	if err := r.resolveModel(ctx, &model); err != nil {
+	if err := r.resolveModel(ctx, &model, true); err != nil {
 		resp.Diagnostics.AddError("Unable to Resolve Base Ref", err.Error())
 		return
 	}
@@ -225,8 +275,9 @@ func (r *gitBranchResource) Update(ctx context.Context, req resource.UpdateReque
 }
 
 func (r *gitBranchResource) Delete(_ context.Context, _ resource.DeleteRequest, _ *resource.DeleteResponse) {
-	// No-op: this provider never pushes or deletes anything on the remote.
-	// The framework removes the resource from state automatically.
+	// No-op: this resource never deletes anything on the remote (it does not
+	// own branch existence, only its base ref and patch stack). The
+	// framework removes the resource from state automatically.
 }
 
 func (r *gitBranchResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
@@ -252,6 +303,7 @@ func (r *gitBranchResource) ImportState(ctx context.Context, req resource.Import
 		BaseRef:     types.StringValue(name),
 		BaseSha:     types.StringValue(hash),
 		ResolvedRef: types.StringValue(hash),
+		Patches:     types.ListNull(types.StringType),
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &model)...)

@@ -29,6 +29,21 @@ type Ref struct {
 	Hash string // full object hash
 }
 
+// ApplyPatchesRequest describes a patch stack to apply on top of a base ref
+// and push to a branch on a remote.
+type ApplyPatchesRequest struct {
+	URL     string
+	Auth    Auth
+	Branch  string   // branch name to force-push the result to
+	BaseRef string   // commit hash to start from
+	Patches []string // ordered raw diff content, applied in order
+}
+
+// ApplyPatchesResult is the outcome of a successful ApplyPatches call.
+type ApplyPatchesResult struct {
+	ResolvedSHA string // HEAD after applying all patches, i.e. what was pushed
+}
+
 // Client is the pluggable git access backend. Implementations must treat an
 // empty Auth as an unauthenticated request.
 type Client interface {
@@ -36,4 +51,10 @@ type Client interface {
 	// and that auth (if any) is valid. Returns an error if the remote
 	// cannot be listed.
 	LsRemote(ctx context.Context, url string, auth Auth) ([]Ref, error)
+
+	// ApplyPatches applies req.Patches in order as commits on top of
+	// req.BaseRef, then force-pushes the result to req.Branch on req.URL.
+	// Patches are expected to apply cleanly; implementations are not
+	// required to handle or recover from conflicts.
+	ApplyPatches(ctx context.Context, req ApplyPatchesRequest) (ApplyPatchesResult, error)
 }

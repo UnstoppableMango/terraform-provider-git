@@ -14,6 +14,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	tfresource "github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	tfterraform "github.com/hashicorp/terraform-plugin-testing/terraform"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -35,6 +36,7 @@ type branchModel struct {
 	BaseRef     types.String    `tfsdk:"base_ref"`
 	BaseSha     types.String    `tfsdk:"base_sha"`
 	ResolvedRef types.String    `tfsdk:"resolved_ref"`
+	Patches     types.List      `tfsdk:"patches"`
 }
 
 type branchRepoModel struct {
@@ -48,7 +50,8 @@ type branchRepoModel struct {
 // configurable function field, and a nil field panics if called so tests
 // only need to set the functions relevant to what they exercise.
 type fakeGitClient struct {
-	lsRemoteFunc func(ctx context.Context, url string, auth git.Auth) ([]git.Ref, error)
+	lsRemoteFunc     func(ctx context.Context, url string, auth git.Auth) ([]git.Ref, error)
+	applyPatchesFunc func(ctx context.Context, req git.ApplyPatchesRequest) (git.ApplyPatchesResult, error)
 
 	gotURL  string
 	gotAuth git.Auth
@@ -63,6 +66,13 @@ func (f *fakeGitClient) LsRemote(ctx context.Context, url string, auth git.Auth)
 	f.gotURL = url
 	f.gotAuth = auth
 	return f.lsRemoteFunc(ctx, url, auth)
+}
+
+func (f *fakeGitClient) ApplyPatches(ctx context.Context, req git.ApplyPatchesRequest) (git.ApplyPatchesResult, error) {
+	if f.applyPatchesFunc == nil {
+		panic("fakeGitClient: ApplyPatches called but applyPatchesFunc is nil")
+	}
+	return f.applyPatchesFunc(ctx, req)
 }
 
 // newBranchResourceWithClient returns a git_branch resource.Resource with
@@ -175,14 +185,15 @@ var _ = Describe("GitBranchResource", func() {
 			Expect(schemaResp.Diagnostics.HasError()).To(BeFalse())
 		})
 
-		It("defines exactly the id, repository, name, base_ref, base_sha, and resolved_ref attributes", func() {
-			Expect(branchSchema.Attributes).To(HaveLen(6))
+		It("defines exactly the id, repository, name, base_ref, base_sha, resolved_ref, and patches attributes", func() {
+			Expect(branchSchema.Attributes).To(HaveLen(7))
 			Expect(branchSchema.Attributes).To(HaveKey("id"))
 			Expect(branchSchema.Attributes).To(HaveKey("repository"))
 			Expect(branchSchema.Attributes).To(HaveKey("name"))
 			Expect(branchSchema.Attributes).To(HaveKey("base_ref"))
 			Expect(branchSchema.Attributes).To(HaveKey("base_sha"))
 			Expect(branchSchema.Attributes).To(HaveKey("resolved_ref"))
+			Expect(branchSchema.Attributes).To(HaveKey("patches"))
 		})
 
 		Describe("id attribute", func() {
@@ -291,6 +302,19 @@ var _ = Describe("GitBranchResource", func() {
 				Expect(a.IsComputed()).To(BeTrue())
 			})
 		})
+
+		Describe("patches attribute", func() {
+			It("is an optional list of strings", func() {
+				a := branchSchema.Attributes["patches"]
+				Expect(a.IsRequired()).To(BeFalse())
+				Expect(a.IsOptional()).To(BeTrue())
+				Expect(a.IsComputed()).To(BeFalse())
+
+				listAttr, ok := a.(rschema.ListAttribute)
+				Expect(ok).To(BeTrue(), "expected patches to be a schema.ListAttribute")
+				Expect(listAttr.ElementType).To(Equal(types.StringType))
+			})
+		})
 	})
 
 	Describe("Create", func() {
@@ -308,7 +332,16 @@ var _ = Describe("GitBranchResource", func() {
 				BaseRef:     types.StringValue(refName),
 				BaseSha:     types.StringUnknown(),
 				ResolvedRef: types.StringUnknown(),
+				Patches:     types.ListNull(types.StringType),
 			}
+		}
+
+		configModelWithPatches := func(patches []string) branchModel {
+			m := configModel()
+			list, diags := types.ListValueFrom(context.Background(), types.StringType, patches)
+			Expect(diags.HasError()).To(BeFalse())
+			m.Patches = list
+			return m
 		}
 
 		Context("when the base ref resolves successfully", func() {
@@ -358,6 +391,70 @@ var _ = Describe("GitBranchResource", func() {
 				Expect(resp.Diagnostics.HasError()).To(BeTrue())
 			})
 		})
+
+		Context("when patches are set", func() {
+			It("calls ApplyPatches with the resolved base sha and writes the returned resolved_ref to state", func() {
+				const resolvedSHA = "5555555555555555555555555555555555555f"
+				patches := []string{"diff --git a/x b/x", "diff --git a/y b/y"}
+
+				var gotReq git.ApplyPatchesRequest
+				fake := &fakeGitClient{
+					lsRemoteFunc: func(ctx context.Context, url string, auth git.Auth) ([]git.Ref, error) {
+						return []git.Ref{{Name: "refs/heads/main", Hash: hash}}, nil
+					},
+					applyPatchesFunc: func(ctx context.Context, req git.ApplyPatchesRequest) (git.ApplyPatchesResult, error) {
+						gotReq = req
+						return git.ApplyPatchesResult{ResolvedSHA: resolvedSHA}, nil
+					},
+				}
+				branchR := newBranchResourceWithClient(fake)
+				s := branchResourceSchema(branchR)
+
+				req := resource.CreateRequest{Config: buildBranchConfig(s, configModelWithPatches(patches))}
+				resp := &resource.CreateResponse{State: tfsdk.State{Schema: s}}
+
+				branchR.Create(context.Background(), req, resp)
+
+				Expect(resp.Diagnostics.HasError()).To(BeFalse(), fmt.Sprintf("%v", resp.Diagnostics))
+
+				Expect(gotReq.URL).To(Equal(repoURL))
+				Expect(gotReq.Branch).To(Equal(refName))
+				Expect(gotReq.BaseRef).To(Equal(hash))
+				Expect(gotReq.Patches).To(Equal(patches))
+
+				var got branchModel
+				Expect(resp.State.Get(context.Background(), &got).HasError()).To(BeFalse())
+				Expect(got.ResolvedRef.ValueString()).To(Equal(resolvedSHA))
+				Expect(got.BaseSha.ValueString()).To(Equal(hash))
+				Expect(got.Id.ValueString()).To(Equal(repoURL + "#" + refName))
+			})
+		})
+
+		Context("when patches are set and ApplyPatches fails", func() {
+			It("adds an error diagnostic without panicking and does not write state", func() {
+				patches := []string{"diff --git a/x b/x"}
+				fake := &fakeGitClient{
+					lsRemoteFunc: func(ctx context.Context, url string, auth git.Auth) ([]git.Ref, error) {
+						return []git.Ref{{Name: "refs/heads/main", Hash: hash}}, nil
+					},
+					applyPatchesFunc: func(ctx context.Context, req git.ApplyPatchesRequest) (git.ApplyPatchesResult, error) {
+						return git.ApplyPatchesResult{}, fmt.Errorf("apply failed")
+					},
+				}
+				branchR := newBranchResourceWithClient(fake)
+				s := branchResourceSchema(branchR)
+
+				req := resource.CreateRequest{Config: buildBranchConfig(s, configModelWithPatches(patches))}
+				resp := &resource.CreateResponse{State: tfsdk.State{Schema: s}}
+
+				Expect(func() {
+					branchR.Create(context.Background(), req, resp)
+				}).NotTo(Panic())
+
+				Expect(resp.Diagnostics.HasError()).To(BeTrue())
+				Expect(resp.State.Raw.IsNull()).To(BeTrue())
+			})
+		})
 	})
 
 	Describe("Read", func() {
@@ -376,7 +473,16 @@ var _ = Describe("GitBranchResource", func() {
 				BaseRef:     types.StringValue(refName),
 				BaseSha:     types.StringValue(base),
 				ResolvedRef: types.StringValue(base),
+				Patches:     types.ListNull(types.StringType),
 			}
+		}
+
+		stateModelWithPatches := func(base string, patches []string) branchModel {
+			m := stateModel(base)
+			list, diags := types.ListValueFrom(context.Background(), types.StringType, patches)
+			Expect(diags.HasError()).To(BeFalse())
+			m.Patches = list
+			return m
 		}
 
 		Context("when the base ref has drifted to a new hash", func() {
@@ -424,6 +530,38 @@ var _ = Describe("GitBranchResource", func() {
 				Expect(resp.State.Raw.IsNull()).To(BeTrue())
 			})
 		})
+
+		Context("when patches are set in state", func() {
+			It("never calls ApplyPatches and refreshes resolved_ref from the branch's current tip on the remote", func() {
+				fake := &fakeGitClient{
+					lsRemoteFunc: func(ctx context.Context, url string, auth git.Auth) ([]git.Ref, error) {
+						// base_ref and the branch name are both "main" in this
+						// Describe block, so the same ref list resolves both
+						// the base ref lookup and the branch-tip lookup.
+						return []git.Ref{{Name: "refs/heads/main", Hash: newHash}}, nil
+					},
+					// applyPatchesFunc intentionally left nil: if Read calls
+					// ApplyPatches it will panic and fail this test.
+				}
+				branchR := newBranchResourceWithClient(fake)
+				s := branchResourceSchema(branchR)
+
+				initial := buildBranchState(s, stateModelWithPatches(oldHash, []string{"diff --git a b"}))
+				req := resource.ReadRequest{State: initial}
+				resp := &resource.ReadResponse{State: tfsdk.State{Schema: s, Raw: initial.Raw}}
+
+				Expect(func() {
+					branchR.Read(context.Background(), req, resp)
+				}).NotTo(Panic())
+
+				Expect(resp.Diagnostics.HasError()).To(BeFalse(), fmt.Sprintf("%v", resp.Diagnostics))
+
+				var got branchModel
+				Expect(resp.State.Get(context.Background(), &got).HasError()).To(BeFalse())
+				Expect(got.BaseSha.ValueString()).To(Equal(newHash))
+				Expect(got.ResolvedRef.ValueString()).To(Equal(newHash))
+			})
+		})
 	})
 
 	Describe("Update", func() {
@@ -441,7 +579,16 @@ var _ = Describe("GitBranchResource", func() {
 				BaseRef:     types.StringValue(refName),
 				BaseSha:     types.StringUnknown(),
 				ResolvedRef: types.StringUnknown(),
+				Patches:     types.ListNull(types.StringType),
 			}
+		}
+
+		planModelWithPatches := func(patches []string) branchModel {
+			m := planModel()
+			list, diags := types.ListValueFrom(context.Background(), types.StringType, patches)
+			Expect(diags.HasError()).To(BeFalse())
+			m.Patches = list
+			return m
 		}
 
 		Context("when the base ref resolves successfully", func() {
@@ -489,6 +636,68 @@ var _ = Describe("GitBranchResource", func() {
 				Expect(resp.Diagnostics.HasError()).To(BeTrue())
 			})
 		})
+
+		Context("when patches are set", func() {
+			It("calls ApplyPatches with the resolved base sha and writes the returned resolved_ref to state", func() {
+				const resolvedSHA = "4444444444444444444444444444444444444e"
+				patches := []string{"diff --git a/x b/x", "diff --git a/y b/y"}
+
+				var gotReq git.ApplyPatchesRequest
+				fake := &fakeGitClient{
+					lsRemoteFunc: func(ctx context.Context, url string, auth git.Auth) ([]git.Ref, error) {
+						return []git.Ref{{Name: "refs/heads/main", Hash: hash}}, nil
+					},
+					applyPatchesFunc: func(ctx context.Context, req git.ApplyPatchesRequest) (git.ApplyPatchesResult, error) {
+						gotReq = req
+						return git.ApplyPatchesResult{ResolvedSHA: resolvedSHA}, nil
+					},
+				}
+				branchR := newBranchResourceWithClient(fake)
+				s := branchResourceSchema(branchR)
+
+				req := resource.UpdateRequest{Plan: buildBranchPlan(s, planModelWithPatches(patches))}
+				resp := &resource.UpdateResponse{State: tfsdk.State{Schema: s}}
+
+				branchR.Update(context.Background(), req, resp)
+
+				Expect(resp.Diagnostics.HasError()).To(BeFalse(), fmt.Sprintf("%v", resp.Diagnostics))
+
+				Expect(gotReq.URL).To(Equal(repoURL))
+				Expect(gotReq.Branch).To(Equal(refName))
+				Expect(gotReq.BaseRef).To(Equal(hash))
+				Expect(gotReq.Patches).To(Equal(patches))
+
+				var got branchModel
+				Expect(resp.State.Get(context.Background(), &got).HasError()).To(BeFalse())
+				Expect(got.ResolvedRef.ValueString()).To(Equal(resolvedSHA))
+				Expect(got.BaseSha.ValueString()).To(Equal(hash))
+			})
+		})
+
+		Context("when patches are set and ApplyPatches fails", func() {
+			It("adds an error diagnostic without panicking", func() {
+				patches := []string{"diff --git a/x b/x"}
+				fake := &fakeGitClient{
+					lsRemoteFunc: func(ctx context.Context, url string, auth git.Auth) ([]git.Ref, error) {
+						return []git.Ref{{Name: "refs/heads/main", Hash: hash}}, nil
+					},
+					applyPatchesFunc: func(ctx context.Context, req git.ApplyPatchesRequest) (git.ApplyPatchesResult, error) {
+						return git.ApplyPatchesResult{}, fmt.Errorf("apply failed")
+					},
+				}
+				branchR := newBranchResourceWithClient(fake)
+				s := branchResourceSchema(branchR)
+
+				req := resource.UpdateRequest{Plan: buildBranchPlan(s, planModelWithPatches(patches))}
+				resp := &resource.UpdateResponse{State: tfsdk.State{Schema: s}}
+
+				Expect(func() {
+					branchR.Update(context.Background(), req, resp)
+				}).NotTo(Panic())
+
+				Expect(resp.Diagnostics.HasError()).To(BeTrue())
+			})
+		})
 	})
 
 	Describe("Delete", func() {
@@ -504,6 +713,7 @@ var _ = Describe("GitBranchResource", func() {
 				BaseRef:     types.StringValue("main"),
 				BaseSha:     types.StringValue("abc123abc123abc123abc123abc123abc123ab"),
 				ResolvedRef: types.StringValue("abc123abc123abc123abc123abc123abc123ab"),
+				Patches:     types.ListNull(types.StringType),
 			}
 
 			req := resource.DeleteRequest{State: buildBranchState(s, model)}
@@ -574,6 +784,7 @@ var _ = Describe("GitBranchResource", func() {
 				Expect(got.ResolvedRef.ValueString()).To(Equal(hash))
 				Expect(got.Repository.Host.IsNull()).To(BeTrue())
 				Expect(got.Repository.Auth).To(BeNil())
+				Expect(got.Patches.IsNull()).To(BeTrue())
 
 				Expect(fake.gotAuth).To(Equal(git.Auth{}))
 			})
@@ -645,6 +856,72 @@ func TestAccGitBranch_basic(t *testing.T) {
 					tfresource.TestCheckResourceAttrSet("git_branch.test", "base_sha"),
 					tfresource.TestCheckResourceAttrSet("git_branch.test", "resolved_ref"),
 					tfresource.TestCheckResourceAttrSet("git_branch.test", "id"),
+				),
+			},
+		},
+	})
+}
+
+// TestAccGitBranch_patches exercises the patches attribute end to end: it
+// applies a single-file-add patch on top of the test repo's default branch
+// and expects resolved_ref to differ from base_sha (the patch produced a new
+// commit that was force-pushed to the branch).
+//
+// This depends on a git.Client backend (execgit or gogit) that implements
+// ApplyPatches. At the time this test was written that implementation was
+// being developed in parallel in separate worktrees and may not yet be
+// present; if ApplyPatches is unimplemented the step will fail with a
+// diagnostic rather than silently passing; run it once both backends land.
+func TestAccGitBranch_patches(t *testing.T) {
+	repoDir := newTestRepo(t)
+	repoURL := "file://" + repoDir
+
+	out, err := exec.Command("git", "-C", repoDir, "branch", "--show-current").Output()
+	if err != nil {
+		t.Fatalf("determining default branch of test repo: %v", err)
+	}
+	defaultBranch := strings.TrimSpace(string(out))
+	if defaultBranch == "" {
+		t.Fatalf("could not determine default branch of test repo")
+	}
+
+	const patch = `diff --git a/PATCH.md b/PATCH.md
+new file mode 100644
+--- /dev/null
++++ b/PATCH.md
+@@ -0,0 +1 @@
++patched
+`
+
+	tfresource.Test(t, tfresource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []tfresource.TestStep{
+			{
+				Config: fmt.Sprintf(`resource "git_branch" "test" {
+  repository = {
+    url = %[1]q
+  }
+  name     = %[2]q
+  base_ref = %[2]q
+  patches  = [%[3]q]
+}`, repoURL, defaultBranch, patch),
+				Check: tfresource.ComposeAggregateTestCheckFunc(
+					tfresource.TestCheckResourceAttr("git_branch.test", "name", defaultBranch),
+					tfresource.TestCheckResourceAttr("git_branch.test", "base_ref", defaultBranch),
+					tfresource.TestCheckResourceAttrSet("git_branch.test", "base_sha"),
+					tfresource.TestCheckResourceAttrSet("git_branch.test", "resolved_ref"),
+					func(s *tfterraform.State) error {
+						rs, ok := s.RootModule().Resources["git_branch.test"]
+						if !ok {
+							return fmt.Errorf("git_branch.test not found in state")
+						}
+						baseSha := rs.Primary.Attributes["base_sha"]
+						resolvedRef := rs.Primary.Attributes["resolved_ref"]
+						if baseSha == resolvedRef {
+							return fmt.Errorf("expected resolved_ref (%s) to differ from base_sha (%s) after applying patches", resolvedRef, baseSha)
+						}
+						return nil
+					},
 				),
 			},
 		},
