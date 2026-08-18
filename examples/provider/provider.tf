@@ -7,7 +7,6 @@ terraform {
 }
 
 provider "git" {
-  # One of "go-git" (default, pure-Go implementation) or "exec" (shells out
-  # to a git binary on PATH).
+  # "go-git" (default) or "exec".
   git_implementation = "go-git"
 }

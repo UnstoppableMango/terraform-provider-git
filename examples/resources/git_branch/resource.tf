@@ -1,12 +1,8 @@
-# A terraform { required_providers { git = { source = "UnstoppableMango/git" } } }
-# block is required when applying this standalone; see
-# examples/provider/provider.tf. It's omitted here because this example
-# doubles as an acceptance test run against an in-process build of the
-# provider (see internal/provider/examples_test.go).
+# Omits the required_providers block since this example also runs as an
+# acceptance test against an in-process build; see examples/provider/provider.tf.
 
-# Tracks the "main" branch of a real, public repository. This never pushes
-# to the remote: git_branch only resolves and reports drift against
-# base_ref, so it's safe to run against a repository you don't own.
+# Tracks the "main" branch of a public repository. Safe to run against a
+# repository you don't own; git_branch never pushes.
 resource "git_branch" "main" {
   repository = {
     url  = "https://github.com/UnstoppableMango/terraform-provider-git.git"
