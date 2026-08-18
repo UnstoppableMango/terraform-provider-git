@@ -31,7 +31,7 @@ variable "github_token" {
 
 # No explicit provider blocks: git_implementation defaults to "go-git", and
 # the github provider picks up its token from the GITHUB_TOKEN environment
-# variable (a PAT belonging to the UnstoppableMango account) — set that
+# variable (a PAT belonging to the UnstoppableMango account), set that
 # before running `terraform apply` against this example.
 
 # A short random suffix keeps repeated runs of this example from colliding
@@ -41,7 +41,7 @@ resource "random_pet" "repo" {
 }
 
 # This provider deliberately never creates or deletes repositories on the
-# remote host (see docs/DESIGN.md) — that's the github provider's job. This
+# remote host (see docs/DESIGN.md), that's the github provider's job. This
 # example demonstrates the intended composition: github_repository owns the
 # repo's lifecycle, and git_repository/git_branch observe and track it.
 resource "github_repository" "example" {
