@@ -44,6 +44,13 @@ type ApplyPatchesResult struct {
 	ResolvedSHA string // HEAD after applying all patches, i.e. what was pushed
 }
 
+// Commit identity used for commits the provider creates while applying a
+// patch stack.
+const (
+	CommitAuthorName  = "terraform-provider-git"
+	CommitAuthorEmail = "terraform-provider-git@localhost"
+)
+
 // Client is the pluggable git access backend. Implementations must treat an
 // empty Auth as an unauthenticated request.
 type Client interface {

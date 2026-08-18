@@ -867,8 +867,9 @@ func TestAccGitBranch_basic(t *testing.T) {
 // and expects resolved_ref to differ from base_sha (the patch produced a new
 // commit that was force-pushed to the branch).
 //
-// This depends on a git.Client backend that implements ApplyPatches: execgit
-// implements it, gogit currently returns a not-implemented error.
+// Both the exec and gogit backends implement ApplyPatches; this test pins
+// the exec backend explicitly to keep exec covered by an acceptance test in
+// addition to gogit's own unit tests in internal/git/gogit.
 func TestAccGitBranch_patches(t *testing.T) {
 	repoDir := newTestRepo(t)
 	repoURL := "file://" + repoDir
@@ -894,9 +895,6 @@ new file mode 100644
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []tfresource.TestStep{
 			{
-				// The go-git backend (this provider's default) doesn't
-				// implement ApplyPatches yet, so this test needs the exec
-				// backend explicitly.
 				Config: fmt.Sprintf(`provider "git" {
   git_implementation = "exec"
 }

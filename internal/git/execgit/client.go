@@ -102,10 +102,10 @@ func (c *client) ApplyPatches(ctx context.Context, req providergit.ApplyPatchesR
 		return providergit.ApplyPatchesResult{}, fmt.Errorf("cloning %s: %w", req.URL, err)
 	}
 
-	if _, err := runGit(ctx, gitPath, cloneDir, env, "config", "user.name", "terraform-provider-git"); err != nil {
+	if _, err := runGit(ctx, gitPath, cloneDir, env, "config", "user.name", providergit.CommitAuthorName); err != nil {
 		return providergit.ApplyPatchesResult{}, fmt.Errorf("setting commit identity: %w", err)
 	}
-	if _, err := runGit(ctx, gitPath, cloneDir, env, "config", "user.email", "terraform-provider-git@localhost"); err != nil {
+	if _, err := runGit(ctx, gitPath, cloneDir, env, "config", "user.email", providergit.CommitAuthorEmail); err != nil {
 		return providergit.ApplyPatchesResult{}, fmt.Errorf("setting commit identity: %w", err)
 	}
 
