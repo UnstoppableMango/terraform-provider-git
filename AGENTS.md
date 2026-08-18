@@ -5,7 +5,7 @@ This file provides guidance to AI Agents when working with code in this reposito
 ## What this is
 
 `terraform-provider-git` is a Terraform provider (HashiCorp `terraform-plugin-framework`) that declares and reconciles the state of a git repository: tracked branches and a quilt-style ordered patch stack applied on top of them.
-See [GOALS.md](GOALS.md) for the vision/non-goals and [docs/DESIGN.md](docs/DESIGN.md) for the full resource model, backends, auth, conflict handling, and push/import semantics before implementing any resource logic — the design doc is the source of truth for intended behavior, and most of it is not yet implemented (see Current state below).
+See [GOALS.md](GOALS.md) for the vision/non-goals and [docs/DESIGN.md](docs/DESIGN.md) for the full resource model, backends, auth, conflict handling, and push/import semantics before implementing any resource logic — the design doc is the source of truth for intended behavior; see Current state below for the subset that is implemented.
 
 ## Commands
 
@@ -28,8 +28,10 @@ Dev shell is Nix-managed (`flake.nix`, direnv auto-loads it via `.envrc`). Every
 
 ## Current state vs. design
 
-Only `git_repository` exists so far, as a data source (`internal/provider/git_repository_data_source.go`).
-Its `Read` mirrors `url` into `id` and verifies the repository is reachable via `LsRemote` on the configured `git_implementation` backend, hard-erroring on failure.
-Auth is resolved from the `auth.token` attribute and passed through to the backend (go-git or exec), see `internal/git`.
+Implemented, per entity:
 
-Not yet implemented (per DESIGN.md): `git_branch`, `git_patch`, the pluggable local-clone/hosting-API access backends, the pluggable go-git/shell-git backend, and GitHub/GitLab auth resolution. When implementing these, follow the terminology and semantics already fixed in DESIGN.md (base ref, resolved ref, patch stack, force-push-on-apply, ephemeral per-run workdirs) rather than inventing new ones.
+- `git_repository` (`internal/provider/git_repository_data_source.go`): a data source matching DESIGN.md. `Read` mirrors `url` into `id` and verifies the repository is reachable via `LsRemote` on the configured `git_implementation` backend, adding a warning on failure. Auth is resolved from the `auth.token` attribute and passed through to the backend (go-git or exec), see `internal/git`.
+- `git_branch` (`internal/provider/git_branch_resource.go`): a resource implementing base-ref tracking only. `Create`/`Update`/`Read` resolve `base_ref` against the repository's remote refs (exact name, then `refs/heads/`, then `refs/tags/`) and record `base_sha`/`resolved_ref`; `Delete` is a no-op. `ImportState` accepts `<url>#<name>`. The patch stack, push, force-push, and conflict handling in DESIGN.md are absent.
+- `git_patch` (`internal/provider/git_patch_data_source.go`): a data source matching DESIGN.md's description of it as a read-only resolver. Resolves `diff` and a content-addressed `id` (sha256 of the diff) from exactly one of `content`, `file`, or `github` (GitHub PR/commit via `internal/git/github`). It has no apply/commit/push behavior and is not referenced from `git_branch`'s patch list, since that list is absent.
+
+Absent: the patch stack attribute on `git_branch`, applying/pushing/force-pushing patches, conflict handling, and the pluggable hosting-API access backend beyond GitHub patch resolution and GitLab auth resolution. When implementing these, follow the terminology and semantics already fixed in DESIGN.md (base ref, resolved ref, patch stack, force-push-on-apply, ephemeral per-run workdirs) rather than inventing new ones.
