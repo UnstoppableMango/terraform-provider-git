@@ -30,11 +30,13 @@ import (
 // installed for real from the public registry during the test.
 //
 // examples/full/github/main.tf is the exception: it declares its own
-// `provider "git" { git_implementation = "exec" }` block, to demonstrate the
-// exec backend explicitly, whether run as this acceptance test or as a
-// standalone `terraform apply`. The ConfigDirectory/provider-block conflict
-// described above only fires for ConfigDirectory, not a raw Config string,
-// so TestAccExampleGitHubFull loads that file's content directly instead.
+// `provider "git" { git_implementation = "go-git" }` block, to demonstrate
+// (and exercise, via its patch-stack resource) the go-git backend's
+// go-gitdiff-based patch application explicitly, whether run as this
+// acceptance test or as a standalone `terraform apply`. The
+// ConfigDirectory/provider-block conflict described above only fires for
+// ConfigDirectory, not a raw Config string, so TestAccExampleGitHubFull loads
+// that file's content directly instead.
 
 func TestAccExampleGitRepository(t *testing.T) {
 	tfresource.Test(t, tfresource.TestCase{

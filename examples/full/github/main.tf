@@ -16,13 +16,15 @@ terraform {
 }
 
 # git_branch.example_with_patches below applies its patch stack via
-# git.Client.ApplyPatches, which the go-git backend (this provider's default)
-# does not implement yet; the exec backend shells out to the real git binary
-# to do it. This provider block is declared directly in this example (unlike
-# the other, patch-free examples) so both the acceptance test and a
-# standalone `terraform apply` exercise the working backend.
+# git.Client.ApplyPatches. This provider block pins the go-git backend
+# explicitly (it's also the default) so this example exercises go-git's
+# pure-Go patch application, backed by github.com/bluekeyes/go-gitdiff,
+# rather than the exec backend's `git apply`/`git commit` shellouts. This
+# provider block is declared directly in this example (unlike the other,
+# patch-free examples) so both the acceptance test and a standalone
+# `terraform apply` exercise the same, explicit backend.
 provider "git" {
-  git_implementation = "exec"
+  git_implementation = "go-git"
 }
 
 variable "github_token" {
