@@ -109,7 +109,10 @@ func (c *client) ApplyPatches(ctx context.Context, req providergit.ApplyPatchesR
 		return providergit.ApplyPatchesResult{}, fmt.Errorf("setting commit identity: %w", err)
 	}
 
-	if _, err := runGit(ctx, gitPath, cloneDir, env, "checkout", "-b", req.Branch, req.BaseRef); err != nil {
+	// -B (not -b): req.Branch may already exist locally, e.g. as the clone's
+	// checked-out default branch when applying a patch stack to the same
+	// branch it's based on. -B resets it to req.BaseRef instead of erroring.
+	if _, err := runGit(ctx, gitPath, cloneDir, env, "checkout", "-B", req.Branch, req.BaseRef); err != nil {
 		return providergit.ApplyPatchesResult{}, fmt.Errorf("checking out %s from %s: %w", req.Branch, req.BaseRef, err)
 	}
 

@@ -35,6 +35,13 @@ func newTestRepo(t *testing.T) string {
 	runGit(dir, "config", "user.email", "test@example.com")
 	runGit(dir, "config", "commit.gpgsign", "false")
 	runGit(dir, "config", "tag.gpgsign", "false")
+	// Real remotes (GitHub, GitLab, etc.) are bare, so pushing to whatever
+	// branch happens to be "checked out" server-side is a non-issue there.
+	// This fixture is a non-bare working copy used as a local file:// remote,
+	// so without this, force-pushing to its currently checked-out branch
+	// (the common case of applying a patch stack to the same branch it's
+	// based on) would be refused by git's denyCurrentBranch safety check.
+	runGit(dir, "config", "receive.denyCurrentBranch", "updateInstead")
 
 	readmePath := filepath.Join(dir, "README.md")
 	if err := os.WriteFile(readmePath, []byte("test\n"), 0o644); err != nil {

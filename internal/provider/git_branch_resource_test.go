@@ -897,7 +897,14 @@ new file mode 100644
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []tfresource.TestStep{
 			{
-				Config: fmt.Sprintf(`resource "git_branch" "test" {
+				// The go-git backend (this provider's default) doesn't
+				// implement ApplyPatches yet, so this test needs the exec
+				// backend explicitly.
+				Config: fmt.Sprintf(`provider "git" {
+  git_implementation = "exec"
+}
+
+resource "git_branch" "test" {
   repository = {
     url = %[1]q
   }
