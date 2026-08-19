@@ -16,7 +16,7 @@ Details behind [GOALS.md](../GOALS.md).
 On top of it:
 
 1. `git_branch` - a resource with an independent lifecycle. Tracks a branch within a `git_repository`: the base ref it follows, and the ordered list of patches that make up its stack.
-2. `git_patch` - like `git_repository`, a data source rather than a resource: it resolves the identity and content of a single patch (from a local file, inline diff content, or a remote source such as a GitHub commit/PR), with no lifecycle of its own. Resolving a patch's content is a read-only operation, separate from applying it; applying, committing, and pushing patches is `git_branch`'s responsibility, which references patches by ID from its ordered patch list.
+1. `git_patch` - like `git_repository`, a data source rather than a resource: it resolves the identity and content of a single patch (from a local file, inline diff content, or a remote source such as a GitHub commit/PR), with no lifecycle of its own. Resolving a patch's content is a read-only operation, separate from applying it; applying, committing, and pushing patches is `git_branch`'s responsibility, which references patches by ID from its ordered patch list.
 
 Patch order is an explicit ordered list on `git_branch` (analogous to a quilt series file), not inferred from a dependency graph.
 
