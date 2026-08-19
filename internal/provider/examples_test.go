@@ -74,7 +74,15 @@ func TestAccExampleGitHubFull(t *testing.T) {
 
 	tfresource.Test(t, tfresource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-		CheckDestroy:             checkGitHubRepoDestroyed(token),
+		// main.tf also declares the github and random providers directly;
+		// ExternalProviders tells the test framework to download and lock
+		// them from the registry during init, since they aren't part of
+		// ProtoV6ProviderFactories above.
+		ExternalProviders: map[string]tfresource.ExternalProvider{
+			"github": {Source: "integrations/github", VersionConstraint: ">= 6.0.0"},
+			"random": {Source: "hashicorp/random", VersionConstraint: ">= 3.0.0"},
+		},
+		CheckDestroy: checkGitHubRepoDestroyed(token),
 		Steps: []tfresource.TestStep{
 			{
 				Config: string(mainTf),
