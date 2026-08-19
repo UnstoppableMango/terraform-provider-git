@@ -16,7 +16,7 @@ func main() {
 	flag.Parse()
 
 	err := providerserver.Serve(context.Background(), provider.New, providerserver.ServeOpts{
-		Address: "registry.terraform.io/UnstoppableMango/git",
+		Address: "registry.opentofu.org/UnstoppableMango/git",
 		Debug:   debug,
 	})
 	if err != nil {
