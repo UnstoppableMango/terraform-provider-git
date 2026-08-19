@@ -111,17 +111,38 @@ func (c *client) ApplyPatches(ctx context.Context, req providergit.ApplyPatchesR
 	}
 
 	refspec := config.RefSpec(fmt.Sprintf("+%s:refs/heads/%s", branchRef, req.Branch))
-	err = repo.PushContext(ctx, &git.PushOptions{
+	pushOpts := &git.PushOptions{
 		RemoteName: "origin",
 		RefSpecs:   []config.RefSpec{refspec},
 		Auth:       authMethod(req.Auth),
-		Force:      true,
-	})
+	}
+	if req.ExpectedTip != "" {
+		pushOpts.ForceWithLease = &git.ForceWithLease{
+			RefName: plumbing.NewBranchReferenceName(req.Branch),
+			Hash:    plumbing.NewHash(req.ExpectedTip),
+		}
+	} else {
+		pushOpts.Force = true
+	}
+
+	err = repo.PushContext(ctx, pushOpts)
 	if err != nil {
+		if req.ExpectedTip != "" && isLeaseRejection(err) {
+			return providergit.ApplyPatchesResult{}, &providergit.ConflictError{Branch: req.Branch, ExpectedTip: req.ExpectedTip, Err: err}
+		}
 		return providergit.ApplyPatchesResult{}, fmt.Errorf("pushing %s: %w", req.Branch, err)
 	}
 
 	return providergit.ApplyPatchesResult{ResolvedSHA: resolvedHash.String()}, nil
+}
+
+// isLeaseRejection reports whether err (as returned by go-git's PushContext
+// for a ForceWithLease push) looks like a lease rejection, i.e. the remote
+// ref had already moved away from the expected tip, rather than some other
+// push failure (network, auth, transport).
+func isLeaseRejection(err error) bool {
+	return errors.Is(err, git.ErrForceNeeded) || errors.Is(err, git.ErrNonFastForwardUpdate) ||
+		strings.Contains(err.Error(), "non-fast-forward")
 }
 
 func (c *client) IsAncestor(ctx context.Context, url string, auth providergit.Auth, ancestor, descendant string) (bool, error) {
