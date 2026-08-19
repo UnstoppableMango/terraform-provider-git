@@ -148,7 +148,18 @@ func (c *client) ApplyPatches(ctx context.Context, req providergit.ApplyPatchesR
 		dstRef = "refs/heads/" + dstRef
 	}
 	refspec := fmt.Sprintf("HEAD:%s", dstRef)
-	if _, err := runGit(ctx, gitPath, cloneDir, env, "push", "--force", "origin", refspec); err != nil {
+
+	pushArgs := []string{"push", "origin", refspec}
+	if req.ExpectedTip != "" {
+		pushArgs = append(pushArgs, fmt.Sprintf("--force-with-lease=%s:%s", dstRef, req.ExpectedTip))
+	} else {
+		pushArgs = append(pushArgs, "--force")
+	}
+
+	if _, err := runGit(ctx, gitPath, cloneDir, env, pushArgs...); err != nil {
+		if req.ExpectedTip != "" && isLeaseRejection(err) {
+			return providergit.ApplyPatchesResult{}, &providergit.ConflictError{Branch: req.Branch, ExpectedTip: req.ExpectedTip, Err: err}
+		}
 		return providergit.ApplyPatchesResult{}, fmt.Errorf("pushing %s: %w", req.Branch, err)
 	}
 
@@ -216,6 +227,15 @@ func runMergeBaseIsAncestor(ctx context.Context, gitPath, dir string, env []stri
 	}
 
 	return false, fmt.Errorf("merge-base --is-ancestor %s %s: %w", ancestor, descendant, err)
+}
+
+// isLeaseRejection reports whether err (as returned by runGit for a
+// `--force-with-lease` push) looks like a lease rejection, i.e. the remote
+// ref had already moved away from the expected tip, rather than some other
+// push failure (network, auth, transport).
+func isLeaseRejection(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "stale info") || strings.Contains(msg, "rejected")
 }
 
 // runGit runs git with the given args in dir (the process's own working

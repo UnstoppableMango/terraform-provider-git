@@ -2,6 +2,7 @@ package gogit_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -163,6 +164,41 @@ var _ = Describe("Client", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(showRefExists(origin, "refs/heads/feature-delete-fail")).To(BeFalse())
 			Expect(showRefs(origin)).To(Equal(refsBefore))
+		})
+
+		It("returns a ConflictError and leaves the remote unchanged when ExpectedTip is stale", func() {
+			origin := newTestRepo()
+			baseSHA := revParse(origin, "HEAD")
+			patch1, _ := makeSequentialPatch(origin, "README.md", "one\n")
+
+			// Establish "feature" at some tip, simulating what a prior Read
+			// observed as resolved_ref.
+			runGit(origin, "branch", "feature")
+			staleTip := revParse(origin, "refs/heads/feature")
+
+			// Simulate a concurrent writer moving "feature" out from under us
+			// before the push below.
+			commitFile(origin, "README.md", "moved-by-someone-else\n")
+			runGit(origin, "branch", "-f", "feature", "HEAD")
+			concurrentTip := revParse(origin, "refs/heads/feature")
+			Expect(concurrentTip).NotTo(Equal(staleTip))
+
+			client := gogit.New()
+			_, err := client.ApplyPatches(context.Background(), providergit.ApplyPatchesRequest{
+				URL:         "file://" + origin,
+				Branch:      "feature",
+				BaseRef:     baseSHA,
+				Patches:     []string{patch1},
+				ExpectedTip: staleTip,
+			})
+
+			Expect(err).To(HaveOccurred())
+			var conflict *providergit.ConflictError
+			Expect(errors.As(err, &conflict)).To(BeTrue(), "expected a *providergit.ConflictError, got: %v", err)
+			Expect(conflict.Branch).To(Equal("feature"))
+			Expect(conflict.ExpectedTip).To(Equal(staleTip))
+
+			Expect(revParse(origin, "refs/heads/feature")).To(Equal(concurrentTip))
 		})
 	})
 

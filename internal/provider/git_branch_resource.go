@@ -12,6 +12,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -50,6 +51,7 @@ type gitBranchResourceModel struct {
 	BaseSha     types.String             `tfsdk:"base_sha"`
 	ResolvedRef types.String             `tfsdk:"resolved_ref"`
 	Patches     types.List               `tfsdk:"patches"`
+	OnConflict  types.String             `tfsdk:"on_conflict"`
 }
 
 // NewGitBranchResource creates a new instance of the git_branch resource.
@@ -210,6 +212,15 @@ func (r *gitBranchResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 				Optional:            true,
 				MarkdownDescription: "Ordered list of patch diffs applied on top of base_ref, in the spirit of quilt push. When set, the resulting commits are force-pushed to the branch on the remote.",
 			},
+			"on_conflict": schema.StringAttribute{
+				Optional:            true,
+				Computed:            true,
+				Default:             stringdefault.StaticString("force"),
+				MarkdownDescription: "How to handle the branch's remote tip having moved since it was last observed, when pushing the patch stack. `force` (default) always force-pushes, discarding drift, matching this provider's historical behavior. `fail` aborts the push instead of clobbering unexpected remote changes; re-run `terraform apply` to pick up the new tip, or resolve the drift manually. Only takes effect when `patches` is set. Must be one of `fail` or `force`.",
+				Validators: []validator.String{
+					stringvalidator.OneOf("fail", "force"),
+				},
+			},
 		},
 	}
 }
@@ -227,7 +238,13 @@ func (r *gitBranchResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 //
 // When model.Patches is empty, behavior is unchanged from before patches
 // existed: resolved_ref is set equal to base_sha.
-func (r *gitBranchResource) resolveModel(ctx context.Context, model *gitBranchResourceModel, apply bool) error {
+//
+// expectedTip is the branch's remote tip as last observed by the caller
+// (e.g. prior state on Update); it is only used when apply is true and
+// model.OnConflict is "fail", in which case it's passed through to
+// ApplyPatches as a compare-and-swap guard. Pass "" when there is no prior
+// observation (Create) or on_conflict is "force".
+func (r *gitBranchResource) resolveModel(ctx context.Context, model *gitBranchResourceModel, apply bool, expectedTip string) error {
 	auth := authFromModel(model.Repository.Host, model.Repository.Auth)
 	url := model.Repository.Url.ValueString()
 
@@ -262,13 +279,18 @@ func (r *gitBranchResource) resolveModel(ctx context.Context, model *gitBranchRe
 		return nil
 	}
 
-	result, err := r.client.ApplyPatches(ctx, git.ApplyPatchesRequest{
+	req := git.ApplyPatchesRequest{
 		URL:     url,
 		Auth:    auth,
 		Branch:  model.Name.ValueString(),
 		BaseRef: hash,
 		Patches: patches,
-	})
+	}
+	if model.OnConflict.ValueString() == "fail" {
+		req.ExpectedTip = expectedTip
+	}
+
+	result, err := r.client.ApplyPatches(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -316,7 +338,14 @@ func (r *gitBranchResource) Create(ctx context.Context, req resource.CreateReque
 		return
 	}
 
-	if err := r.resolveModel(ctx, &model, true); err != nil {
+	// Create reads from Config, not Plan, so on_conflict's schema default
+	// isn't applied yet when the attribute is omitted; apply it explicitly
+	// so the state this method writes matches what was planned.
+	if model.OnConflict.IsNull() {
+		model.OnConflict = types.StringValue("force")
+	}
+
+	if err := r.resolveModel(ctx, &model, true, ""); err != nil {
 		var pe *patchesError
 		if errors.As(err, &pe) {
 			resp.Diagnostics.AddAttributeError(path.Root("patches"), "Unable to Create Branch", err.Error())
@@ -341,7 +370,7 @@ func (r *gitBranchResource) Read(ctx context.Context, req resource.ReadRequest, 
 
 	oldBaseSha := model.BaseSha.ValueString()
 
-	if err := r.resolveModel(ctx, &model, false); err != nil {
+	if err := r.resolveModel(ctx, &model, false, ""); err != nil {
 		var notFound *refNotFoundError
 		if errors.As(err, &notFound) {
 			// A missing branch tip always means the branch itself is gone.
@@ -421,11 +450,25 @@ func (r *gitBranchResource) Update(ctx context.Context, req resource.UpdateReque
 		return
 	}
 	oldBaseSha := priorState.BaseSha.ValueString()
+	expectedTip := priorState.ResolvedRef.ValueString()
 
-	if err := r.resolveModel(ctx, &model, true); err != nil {
+	if err := r.resolveModel(ctx, &model, true, expectedTip); err != nil {
 		var pe *patchesError
 		if errors.As(err, &pe) {
 			resp.Diagnostics.AddAttributeError(path.Root("patches"), "Unable to Update Branch", err.Error())
+			return
+		}
+		if conflict, ok := errors.AsType[*git.ConflictError](err); ok {
+			resp.Diagnostics.AddError(
+				"Conflict Detected: Branch Tip Changed Since Last Read",
+				fmt.Sprintf(
+					"Branch %q on %s has moved since it was last observed (expected tip %s). "+
+						"on_conflict is \"fail\", so the push was aborted instead of clobbering "+
+						"this unexpected change. Run terraform plan/apply again to pick up the "+
+						"new tip, or set on_conflict to \"force\" to override it. Details: %s",
+					model.Name.ValueString(), model.Repository.Url.ValueString(), expectedTip, conflict.Error(),
+				),
+			)
 			return
 		}
 		resp.Diagnostics.AddError("Unable to Update Branch", err.Error())
@@ -469,6 +512,7 @@ func (r *gitBranchResource) ImportState(ctx context.Context, req resource.Import
 		BaseSha:     types.StringValue(hash),
 		ResolvedRef: types.StringValue(hash),
 		Patches:     types.ListNull(types.StringType),
+		OnConflict:  types.StringValue("force"),
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &model)...)

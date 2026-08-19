@@ -2,7 +2,10 @@
 // the provider to talk to remote git repositories.
 package git
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 // Auth carries authentication details used to connect to a remote
 // repository. An empty Auth means an unauthenticated request.
@@ -37,11 +40,38 @@ type ApplyPatchesRequest struct {
 	Branch  string   // branch name to force-push the result to
 	BaseRef string   // commit hash to start from
 	Patches []string // ordered raw diff content, applied in order
+
+	// ExpectedTip, when non-empty, is the branch's remote tip as last
+	// observed by the caller (e.g. a prior Read). The push is performed as
+	// a compare-and-swap: it only succeeds if the branch's current remote
+	// tip still equals ExpectedTip, and returns a *ConflictError otherwise.
+	// An empty ExpectedTip means push unconditionally, as before this field
+	// existed (used for Create, and for Update when on_conflict is
+	// "force").
+	ExpectedTip string
 }
 
 // ApplyPatchesResult is the outcome of a successful ApplyPatches call.
 type ApplyPatchesResult struct {
 	ResolvedSHA string // HEAD after applying all patches, i.e. what was pushed
+}
+
+// ConflictError indicates a compare-and-swap push (see
+// ApplyPatchesRequest.ExpectedTip) was rejected because the branch's actual
+// remote tip no longer matched ExpectedTip: something else moved the branch
+// between the caller's last observation and this push.
+type ConflictError struct {
+	Branch      string
+	ExpectedTip string
+	Err         error // underlying backend error, for detail/logging
+}
+
+func (e *ConflictError) Error() string {
+	return fmt.Sprintf("branch %q has moved since it was last observed at %s: %v", e.Branch, e.ExpectedTip, e.Err)
+}
+
+func (e *ConflictError) Unwrap() error {
+	return e.Err
 }
 
 // Commit identity used for commits the provider creates while applying a

@@ -11,6 +11,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	rschema "github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/defaults"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	tfresource "github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -33,6 +34,7 @@ type branchModel struct {
 	BaseSha     types.String    `tfsdk:"base_sha"`
 	ResolvedRef types.String    `tfsdk:"resolved_ref"`
 	Patches     types.List      `tfsdk:"patches"`
+	OnConflict  types.String    `tfsdk:"on_conflict"`
 }
 
 type branchRepoModel struct {
@@ -179,8 +181,8 @@ var _ = Describe("GitBranchResource", func() {
 			Expect(schemaResp.Diagnostics.HasError()).To(BeFalse())
 		})
 
-		It("defines exactly the id, repository, name, base_ref, base_sha, resolved_ref, and patches attributes", func() {
-			Expect(branchSchema.Attributes).To(HaveLen(7))
+		It("defines exactly the id, repository, name, base_ref, base_sha, resolved_ref, patches, and on_conflict attributes", func() {
+			Expect(branchSchema.Attributes).To(HaveLen(8))
 			Expect(branchSchema.Attributes).To(HaveKey("id"))
 			Expect(branchSchema.Attributes).To(HaveKey("repository"))
 			Expect(branchSchema.Attributes).To(HaveKey("name"))
@@ -188,6 +190,7 @@ var _ = Describe("GitBranchResource", func() {
 			Expect(branchSchema.Attributes).To(HaveKey("base_sha"))
 			Expect(branchSchema.Attributes).To(HaveKey("resolved_ref"))
 			Expect(branchSchema.Attributes).To(HaveKey("patches"))
+			Expect(branchSchema.Attributes).To(HaveKey("on_conflict"))
 		})
 
 		Describe("id attribute", func() {
@@ -309,6 +312,25 @@ var _ = Describe("GitBranchResource", func() {
 				Expect(listAttr.ElementType).To(Equal(types.StringType))
 			})
 		})
+
+		Describe("on_conflict attribute", func() {
+			It("is an optional, computed string defaulting to \"force\" with a fail/force validator", func() {
+				a := branchSchema.Attributes["on_conflict"]
+				Expect(a.IsRequired()).To(BeFalse())
+				Expect(a.IsOptional()).To(BeTrue())
+				Expect(a.IsComputed()).To(BeTrue())
+
+				strAttr, ok := a.(rschema.StringAttribute)
+				Expect(ok).To(BeTrue(), "expected on_conflict to be a schema.StringAttribute")
+				Expect(strAttr.Validators).NotTo(BeEmpty(), "expected on_conflict to have at least one validator (e.g. stringvalidator.OneOf)")
+				Expect(strAttr.Default).NotTo(BeNil(), "expected on_conflict to have a Default")
+
+				var defaultResp defaults.StringResponse
+				strAttr.Default.DefaultString(context.Background(), defaults.StringRequest{}, &defaultResp)
+				Expect(defaultResp.Diagnostics.HasError()).To(BeFalse())
+				Expect(defaultResp.PlanValue.ValueString()).To(Equal("force"))
+			})
+		})
 	})
 
 	Describe("Create", func() {
@@ -327,6 +349,11 @@ var _ = Describe("GitBranchResource", func() {
 				BaseSha:     types.StringUnknown(),
 				ResolvedRef: types.StringUnknown(),
 				Patches:     types.ListNull(types.StringType),
+				// Left null, as it would be in a real Config when the user
+				// omits on_conflict; Create is expected to fill in the
+				// "force" default itself (see the "on_conflict" Context
+				// below).
+				OnConflict: types.StringNull(),
 			}
 		}
 
@@ -360,6 +387,7 @@ var _ = Describe("GitBranchResource", func() {
 				Expect(got.BaseSha.ValueString()).To(Equal(hash))
 				Expect(got.ResolvedRef.ValueString()).To(Equal(hash))
 				Expect(got.Id.ValueString()).To(Equal(repoURL + "#" + refName))
+				Expect(got.OnConflict.ValueString()).To(Equal("force"))
 
 				Expect(fake.gotURL).To(Equal(repoURL))
 			})
@@ -468,6 +496,7 @@ var _ = Describe("GitBranchResource", func() {
 				BaseSha:     types.StringValue(base),
 				ResolvedRef: types.StringValue(base),
 				Patches:     types.ListNull(types.StringType),
+				OnConflict:  types.StringValue("force"),
 			}
 		}
 
@@ -745,6 +774,9 @@ var _ = Describe("GitBranchResource", func() {
 				BaseSha:     types.StringUnknown(),
 				ResolvedRef: types.StringUnknown(),
 				Patches:     types.ListNull(types.StringType),
+				// Plan already has schema defaults applied by Terraform core,
+				// so on_conflict is "force" here, not null.
+				OnConflict: types.StringValue("force"),
 			}
 		}
 
@@ -753,6 +785,12 @@ var _ = Describe("GitBranchResource", func() {
 			list, diags := types.ListValueFrom(context.Background(), types.StringType, patches)
 			Expect(diags.HasError()).To(BeFalse())
 			m.Patches = list
+			return m
+		}
+
+		planModelWithPatchesAndOnConflict := func(patches []string, onConflict string) branchModel {
+			m := planModelWithPatches(patches)
+			m.OnConflict = types.StringValue(onConflict)
 			return m
 		}
 
@@ -769,7 +807,23 @@ var _ = Describe("GitBranchResource", func() {
 				BaseSha:     types.StringValue(base),
 				ResolvedRef: types.StringValue(base),
 				Patches:     types.ListNull(types.StringType),
+				OnConflict:  types.StringValue("force"),
 			}
+		}
+
+		// priorStateModelWithResolvedRef is like priorStateModel, but lets
+		// resolved_ref be set independently of base_sha, for on_conflict =
+		// "fail" tests where resolved_ref is what Update passes to
+		// ApplyPatches as the compare-and-swap ExpectedTip.
+		priorStateModelWithResolvedRef := func(base, resolvedRef string, patches []string) branchModel {
+			m := priorStateModel(base)
+			m.ResolvedRef = types.StringValue(resolvedRef)
+			if patches != nil {
+				list, diags := types.ListValueFrom(context.Background(), types.StringType, patches)
+				Expect(diags.HasError()).To(BeFalse())
+				m.Patches = list
+			}
+			return m
 		}
 
 		Context("when the base ref resolves successfully", func() {
@@ -892,6 +946,97 @@ var _ = Describe("GitBranchResource", func() {
 			})
 		})
 
+		Context("when on_conflict is \"force\" (the default) and patches are set", func() {
+			It("does not set ExpectedTip on the ApplyPatches request", func() {
+				patches := []string{"diff --git a/x b/x"}
+				var gotReq git.ApplyPatchesRequest
+				fake := &fakeGitClient{
+					lsRemoteFunc: func(ctx context.Context, url string, auth git.Auth) ([]git.Ref, error) {
+						return []git.Ref{{Name: "refs/heads/main", Hash: hash}}, nil
+					},
+					applyPatchesFunc: func(ctx context.Context, req git.ApplyPatchesRequest) (git.ApplyPatchesResult, error) {
+						gotReq = req
+						return git.ApplyPatchesResult{ResolvedSHA: hash}, nil
+					},
+				}
+				branchR := newBranchResourceWithClient(fake)
+				s := branchResourceSchema(branchR)
+
+				req := resource.UpdateRequest{
+					Plan:  buildBranchPlan(s, planModelWithPatchesAndOnConflict(patches, "force")),
+					State: buildBranchState(s, priorStateModelWithResolvedRef(hash, "some-prior-tip", patches)),
+				}
+				resp := &resource.UpdateResponse{State: tfsdk.State{Schema: s}}
+
+				branchR.Update(context.Background(), req, resp)
+
+				Expect(resp.Diagnostics.HasError()).To(BeFalse(), fmt.Sprintf("%v", resp.Diagnostics))
+				Expect(gotReq.ExpectedTip).To(BeEmpty())
+			})
+		})
+
+		Context("when on_conflict is \"fail\" and patches are set", func() {
+			It("passes the prior resolved_ref as ExpectedTip on the ApplyPatches request", func() {
+				patches := []string{"diff --git a/x b/x"}
+				const priorTip = "5555555555555555555555555555555555555f"
+				var gotReq git.ApplyPatchesRequest
+				fake := &fakeGitClient{
+					lsRemoteFunc: func(ctx context.Context, url string, auth git.Auth) ([]git.Ref, error) {
+						return []git.Ref{{Name: "refs/heads/main", Hash: hash}}, nil
+					},
+					applyPatchesFunc: func(ctx context.Context, req git.ApplyPatchesRequest) (git.ApplyPatchesResult, error) {
+						gotReq = req
+						return git.ApplyPatchesResult{ResolvedSHA: hash}, nil
+					},
+				}
+				branchR := newBranchResourceWithClient(fake)
+				s := branchResourceSchema(branchR)
+
+				req := resource.UpdateRequest{
+					Plan:  buildBranchPlan(s, planModelWithPatchesAndOnConflict(patches, "fail")),
+					State: buildBranchState(s, priorStateModelWithResolvedRef(hash, priorTip, patches)),
+				}
+				resp := &resource.UpdateResponse{State: tfsdk.State{Schema: s}}
+
+				branchR.Update(context.Background(), req, resp)
+
+				Expect(resp.Diagnostics.HasError()).To(BeFalse(), fmt.Sprintf("%v", resp.Diagnostics))
+				Expect(gotReq.ExpectedTip).To(Equal(priorTip))
+			})
+
+			It("adds a distinct conflict diagnostic without panicking when ApplyPatches returns a ConflictError", func() {
+				patches := []string{"diff --git a/x b/x"}
+				const priorTip = "5555555555555555555555555555555555555f"
+				fake := &fakeGitClient{
+					lsRemoteFunc: func(ctx context.Context, url string, auth git.Auth) ([]git.Ref, error) {
+						return []git.Ref{{Name: "refs/heads/main", Hash: hash}}, nil
+					},
+					applyPatchesFunc: func(ctx context.Context, req git.ApplyPatchesRequest) (git.ApplyPatchesResult, error) {
+						return git.ApplyPatchesResult{}, &git.ConflictError{
+							Branch:      refName,
+							ExpectedTip: req.ExpectedTip,
+							Err:         fmt.Errorf("stale info"),
+						}
+					},
+				}
+				branchR := newBranchResourceWithClient(fake)
+				s := branchResourceSchema(branchR)
+
+				req := resource.UpdateRequest{
+					Plan:  buildBranchPlan(s, planModelWithPatchesAndOnConflict(patches, "fail")),
+					State: buildBranchState(s, priorStateModelWithResolvedRef(hash, priorTip, patches)),
+				}
+				resp := &resource.UpdateResponse{State: tfsdk.State{Schema: s}}
+
+				Expect(func() {
+					branchR.Update(context.Background(), req, resp)
+				}).NotTo(Panic())
+
+				Expect(resp.Diagnostics.HasError()).To(BeTrue())
+				Expect(resp.Diagnostics.Errors()[0].Summary()).To(Equal("Conflict Detected: Branch Tip Changed Since Last Read"))
+			})
+		})
+
 		Context("when the base ref resolves to a hash that fast-forwards the prior base_sha", func() {
 			It("does not add a warning diagnostic", func() {
 				const oldHash = "3333333333333333333333333333333333333d"
@@ -993,6 +1138,7 @@ var _ = Describe("GitBranchResource", func() {
 				BaseSha:     types.StringValue("abc123abc123abc123abc123abc123abc123ab"),
 				ResolvedRef: types.StringValue("abc123abc123abc123abc123abc123abc123ab"),
 				Patches:     types.ListNull(types.StringType),
+				OnConflict:  types.StringValue("force"),
 			}
 
 			req := resource.DeleteRequest{State: buildBranchState(s, model)}
@@ -1064,6 +1210,7 @@ var _ = Describe("GitBranchResource", func() {
 				Expect(got.Repository.Host.IsNull()).To(BeTrue())
 				Expect(got.Repository.Auth).To(BeNil())
 				Expect(got.Patches.IsNull()).To(BeTrue())
+				Expect(got.OnConflict.ValueString()).To(Equal("force"))
 
 				Expect(fake.gotAuth).To(Equal(git.Auth{}))
 			})
