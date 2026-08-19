@@ -44,17 +44,21 @@ type ApplyPatchesResult struct {
 	ResolvedSHA string // HEAD after applying all patches, i.e. what was pushed
 }
 
+// Commit identity used for commits the provider creates while applying a
+// patch stack.
+const (
+	CommitAuthorName  = "terraform-provider-git"
+	CommitAuthorEmail = "terraform-provider-git@localhost"
+)
+
 // Client is the pluggable git access backend. Implementations must treat an
 // empty Auth as an unauthenticated request.
 type Client interface {
 	// LsRemote lists refs on the given remote URL, verifying it is reachable
-	// and that auth (if any) is valid. Returns an error if the remote
-	// cannot be listed.
+	// and that auth (if any) is valid.
 	LsRemote(ctx context.Context, url string, auth Auth) ([]Ref, error)
 
 	// ApplyPatches applies req.Patches in order as commits on top of
 	// req.BaseRef, then force-pushes the result to req.Branch on req.URL.
-	// Patches are expected to apply cleanly; implementations are not
-	// required to handle or recover from conflicts.
 	ApplyPatches(ctx context.Context, req ApplyPatchesRequest) (ApplyPatchesResult, error)
 }

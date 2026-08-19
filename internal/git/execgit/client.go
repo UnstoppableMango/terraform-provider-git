@@ -52,11 +52,9 @@ func (c *client) LsRemote(ctx context.Context, url string, auth providergit.Auth
 	return parseLsRemote(stdout.String()), nil
 }
 
-// gitEnv builds the environment to use for git invocations against a
-// remote, given the auth to use (if any). It disables interactive terminal
-// prompts and, when a token is supplied, wires up a temporary GIT_ASKPASS
-// script so git authenticates non-interactively. The returned cleanup func
-// must be called once the git invocation(s) using this env have finished.
+// gitEnv builds the environment for git invocations against a remote,
+// wiring up a temporary GIT_ASKPASS script when a token is supplied.
+// Callers must call the returned cleanup func once done.
 func gitEnv(auth providergit.Auth) (env []string, cleanup func(), err error) {
 	env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	cleanup = func() {}
@@ -102,16 +100,14 @@ func (c *client) ApplyPatches(ctx context.Context, req providergit.ApplyPatchesR
 		return providergit.ApplyPatchesResult{}, fmt.Errorf("cloning %s: %w", req.URL, err)
 	}
 
-	if _, err := runGit(ctx, gitPath, cloneDir, env, "config", "user.name", "terraform-provider-git"); err != nil {
+	if _, err := runGit(ctx, gitPath, cloneDir, env, "config", "user.name", providergit.CommitAuthorName); err != nil {
 		return providergit.ApplyPatchesResult{}, fmt.Errorf("setting commit identity: %w", err)
 	}
-	if _, err := runGit(ctx, gitPath, cloneDir, env, "config", "user.email", "terraform-provider-git@localhost"); err != nil {
+	if _, err := runGit(ctx, gitPath, cloneDir, env, "config", "user.email", providergit.CommitAuthorEmail); err != nil {
 		return providergit.ApplyPatchesResult{}, fmt.Errorf("setting commit identity: %w", err)
 	}
 
-	// -B (not -b): req.Branch may already exist locally, e.g. as the clone's
-	// checked-out default branch when applying a patch stack to the same
-	// branch it's based on. -B resets it to req.BaseRef instead of erroring.
+	// -B resets req.Branch to req.BaseRef even if it already exists locally.
 	if _, err := runGit(ctx, gitPath, cloneDir, env, "checkout", "-B", req.Branch, req.BaseRef); err != nil {
 		return providergit.ApplyPatchesResult{}, fmt.Errorf("checking out %s from %s: %w", req.Branch, req.BaseRef, err)
 	}
