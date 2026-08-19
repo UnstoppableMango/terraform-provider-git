@@ -9,12 +9,12 @@ See [GOALS.md](GOALS.md) for the vision/non-goals and [docs/DESIGN.md](docs/DESI
 
 ## Commands
 
-Dev shell is Nix-managed (`flake.nix`, direnv auto-loads it via `.envrc`). Everything below assumes that shell (`go`, `gomod2nix`, and `ginkgo` are available directly on `PATH`).
+Dev shell is Nix-managed (`flake.nix`, direnv auto-loads it via `.envrc`). Everything below assumes that shell (`go` and `gomod2nix` are available directly on `PATH`). Ginkgo is a go tool dependency (`go.mod` `tool` directive) instead, invoked as `go tool ginkgo` so the version tracks `go.mod`, not nixpkgs.
 
 - Build: `make build` (wraps `nix build .#`)
-- Test (all): `make test` (wraps `ginkgo run -r`)
-- Test (single package): `ginkgo run ./internal/provider`
-- Test (single spec): use Ginkgo focus, e.g. `ginkgo run --focus "<Describe/It text>" ./internal/provider`
+- Test (all): `make test` (wraps `go tool ginkgo run -r`)
+- Test (single package): `go tool ginkgo run ./internal/provider`
+- Test (single spec): use Ginkgo focus, e.g. `go tool ginkgo run --focus "<Describe/It text>" ./internal/provider`
 - Lint/check: `make check` or `make lint` (wraps `nix flake check`)
 - Format: `make fmt` or `make format` (wraps `nix fmt`, runs treefmt: gofmt, nixfmt, actionlint)
 - Regenerate `go.sum` and `nix/gomod2nix.toml` after touching `go.mod`: `make tidy`

@@ -2,6 +2,8 @@ module github.com/UnstoppableMango/terraform-provider-git
 
 go 1.25.8
 
+tool github.com/onsi/ginkgo/v2/ginkgo
+
 require (
 	github.com/bluekeyes/go-gitdiff v0.9.0
 	github.com/go-git/go-billy/v5 v5.9.1

@@ -47,7 +47,6 @@
               go
               gomod2nix
               gopls
-              ginkgo
               gnumake
               nixfmt
               golangci-lint
