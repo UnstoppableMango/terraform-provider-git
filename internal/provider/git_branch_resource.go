@@ -77,14 +77,30 @@ func (r *gitBranchResource) Configure(_ context.Context, req resource.ConfigureR
 	r.client = data.GitClient
 }
 
+// refKind identifies which of a branch's two remote refs a refNotFoundError
+// came from: the configured base_ref, or the tracked branch's own tip
+// (looked up by Name). The two carry different implications when a ref
+// vanishes — see refNotFoundError and its use in Read.
+type refKind int
+
+const (
+	refKindBase refKind = iota
+	refKindBranchTip
+)
+
 // refNotFoundError indicates a ref could not be resolved against a
 // repository's remote refs, as opposed to other failures (network,
 // transport, auth, etc). Callers use errors.As to distinguish this
 // specific "genuinely gone" condition from errors that should be
 // surfaced as diagnostics rather than treated as a delete signal.
+//
+// kind matters: base_ref disappearing does not imply the tracked branch
+// itself is gone (it may still exist from a prior force-push), so only a
+// refKindBranchTip miss is an unconditional delete signal. See Read.
 type refNotFoundError struct {
-	ref string
-	url string
+	ref  string
+	url  string
+	kind refKind
 }
 
 func (e *refNotFoundError) Error() string {
@@ -106,8 +122,8 @@ func (e *patchesError) Error() string {
 
 // resolveBranchRef resolves ref against url's remote refs, matching in
 // priority order: exact name, "refs/heads/"+ref, "refs/tags/"+ref. Returns
-// a *refNotFoundError if no match is found.
-func resolveBranchRef(ctx context.Context, client git.Client, url string, auth git.Auth, ref string) (string, error) {
+// a *refNotFoundError (tagged with kind) if no match is found.
+func resolveBranchRef(ctx context.Context, client git.Client, url string, auth git.Auth, ref string, kind refKind) (string, error) {
 	refs, err := client.LsRemote(ctx, url, auth)
 	if err != nil {
 		return "", fmt.Errorf("listing remote refs: %w", err)
@@ -122,7 +138,7 @@ func resolveBranchRef(ctx context.Context, client git.Client, url string, auth g
 		}
 	}
 
-	return "", &refNotFoundError{ref: ref, url: url}
+	return "", &refNotFoundError{ref: ref, url: url, kind: kind}
 }
 
 func (r *gitBranchResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
@@ -214,7 +230,7 @@ func (r *gitBranchResource) resolveModel(ctx context.Context, model *gitBranchRe
 	auth := authFromModel(model.Repository.Host, model.Repository.Auth)
 	url := model.Repository.Url.ValueString()
 
-	hash, err := resolveBranchRef(ctx, r.client, url, auth, model.BaseRef.ValueString())
+	hash, err := resolveBranchRef(ctx, r.client, url, auth, model.BaseRef.ValueString(), refKindBase)
 	if err != nil {
 		return err
 	}
@@ -237,7 +253,7 @@ func (r *gitBranchResource) resolveModel(ctx context.Context, model *gitBranchRe
 	}
 
 	if !apply {
-		tip, err := resolveBranchRef(ctx, r.client, url, auth, model.Name.ValueString())
+		tip, err := resolveBranchRef(ctx, r.client, url, auth, model.Name.ValueString(), refKindBranchTip)
 		if err != nil {
 			return err
 		}
@@ -294,8 +310,16 @@ func (r *gitBranchResource) Read(ctx context.Context, req resource.ReadRequest, 
 	if err := r.resolveModel(ctx, &model, false); err != nil {
 		var notFound *refNotFoundError
 		if errors.As(err, &notFound) {
-			resp.State.RemoveResource(ctx)
-			return
+			// A missing branch tip always means the branch itself is gone.
+			// A missing base_ref only means that when there's no patch
+			// stack to have force-pushed a branch tip independent of it;
+			// otherwise the branch may still exist and this should surface
+			// as a diagnostic rather than silently deleting state.
+			noPatches := model.Patches.IsNull() || len(model.Patches.Elements()) == 0
+			if notFound.kind == refKindBranchTip || (notFound.kind == refKindBase && noPatches) {
+				resp.State.RemoveResource(ctx)
+				return
+			}
 		}
 		resp.Diagnostics.AddError("Unable to Read Branch", err.Error())
 		return
@@ -343,7 +367,7 @@ func (r *gitBranchResource) ImportState(ctx context.Context, req resource.Import
 	url := req.ID[:idx]
 	name := req.ID[idx+1:]
 
-	hash, err := resolveBranchRef(ctx, r.client, url, git.Auth{}, name)
+	hash, err := resolveBranchRef(ctx, r.client, url, git.Auth{}, name, refKindBranchTip)
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to Resolve Base Ref", err.Error())
 		return

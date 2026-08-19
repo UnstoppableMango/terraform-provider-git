@@ -26,5 +26,3 @@ jobs:
       - run: nix build .#
       - run: nix develop -c golangci-lint run ./...
       - run: nix develop -c bash -c "TF_ACC=1 TF_ACC_TERRAFORM_PATH=\$(command -v tofu) go test ./..."
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

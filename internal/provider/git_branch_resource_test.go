@@ -521,6 +521,33 @@ var _ = Describe("GitBranchResource", func() {
 			})
 		})
 
+		Context("when base_ref no longer resolves but patches are set and the branch's own tip still resolves", func() {
+			It("adds an error diagnostic and does not remove the resource from state", func() {
+				fake := &fakeGitClient{
+					lsRemoteFunc: func(ctx context.Context, url string, auth git.Auth) ([]git.Ref, error) {
+						// base_ref ("gone-base") is missing, but the tracked
+						// branch's own tip (refName) still resolves, so the
+						// branch itself is not confirmed gone.
+						return []git.Ref{{Name: "refs/heads/" + refName, Hash: newHash}}, nil
+					},
+				}
+				branchR := newBranchResourceWithClient(fake)
+				s := branchResourceSchema(branchR)
+
+				m := stateModelWithPatches(oldHash, []string{"diff --git a b"})
+				m.BaseRef = types.StringValue("gone-base")
+
+				initial := buildBranchState(s, m)
+				req := resource.ReadRequest{State: initial}
+				resp := &resource.ReadResponse{State: tfsdk.State{Schema: s, Raw: initial.Raw}}
+
+				branchR.Read(context.Background(), req, resp)
+
+				Expect(resp.Diagnostics.HasError()).To(BeTrue())
+				Expect(resp.State.Raw.IsNull()).To(BeFalse())
+			})
+		})
+
 		Context("when listing remote refs fails for a reason other than the ref being gone", func() {
 			It("adds an error diagnostic and does not remove the resource from state", func() {
 				fake := &fakeGitClient{
