@@ -76,7 +76,7 @@ func newBranchResourceWithClient(client git.Client) resource.Resource {
 	r := provider.NewGitBranchResource()
 
 	v := reflect.ValueOf(r)
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		v = v.Elem()
 	}
 	f := v.FieldByName("client")
@@ -500,7 +500,11 @@ var _ = Describe("GitBranchResource", func() {
 			It("removes the resource from state without an error diagnostic", func() {
 				fake := &fakeGitClient{
 					lsRemoteFunc: func(ctx context.Context, url string, auth git.Auth) ([]git.Ref, error) {
-						return nil, fmt.Errorf("ref gone")
+						// Remote is reachable, but the ref itself is gone
+						// (e.g. the branch was deleted) — this is the
+						// genuine "not found" condition that should be
+						// treated as a delete signal.
+						return []git.Ref{{Name: "refs/heads/other", Hash: newHash}}, nil
 					},
 				}
 				branchR := newBranchResourceWithClient(fake)
@@ -514,6 +518,27 @@ var _ = Describe("GitBranchResource", func() {
 
 				Expect(resp.Diagnostics.HasError()).To(BeFalse(), fmt.Sprintf("%v", resp.Diagnostics))
 				Expect(resp.State.Raw.IsNull()).To(BeTrue())
+			})
+		})
+
+		Context("when listing remote refs fails for a reason other than the ref being gone", func() {
+			It("adds an error diagnostic and does not remove the resource from state", func() {
+				fake := &fakeGitClient{
+					lsRemoteFunc: func(ctx context.Context, url string, auth git.Auth) ([]git.Ref, error) {
+						return nil, fmt.Errorf("connection refused")
+					},
+				}
+				branchR := newBranchResourceWithClient(fake)
+				s := branchResourceSchema(branchR)
+
+				initial := buildBranchState(s, stateModel(oldHash))
+				req := resource.ReadRequest{State: initial}
+				resp := &resource.ReadResponse{State: tfsdk.State{Schema: s, Raw: initial.Raw}}
+
+				branchR.Read(context.Background(), req, resp)
+
+				Expect(resp.Diagnostics.HasError()).To(BeTrue())
+				Expect(resp.State.Raw.IsNull()).To(BeFalse())
 			})
 		})
 
@@ -776,10 +801,15 @@ var _ = Describe("GitBranchResource", func() {
 			})
 
 			It("splits on the last # in the import ID", func() {
-				const nameWithHash = "weird#name"
+				// URLs may legitimately contain a "#" (e.g. a URL
+				// fragment), while branch names generally do not. Splitting
+				// on the last "#" (rather than the first) is what lets a
+				// url like this round-trip correctly.
+				const urlWithHash = "https://example.com/repo.git#fragment"
 				fake := &fakeGitClient{
 					lsRemoteFunc: func(ctx context.Context, url string, auth git.Auth) ([]git.Ref, error) {
-						return []git.Ref{{Name: "refs/heads/" + nameWithHash, Hash: hash}}, nil
+						Expect(url).To(Equal(urlWithHash))
+						return []git.Ref{{Name: "refs/heads/" + refName, Hash: hash}}, nil
 					},
 				}
 				branchR := newBranchResourceWithClient(fake)
@@ -787,7 +817,7 @@ var _ = Describe("GitBranchResource", func() {
 				importer, ok := branchR.(resource.ResourceWithImportState)
 				Expect(ok).To(BeTrue())
 
-				importID := repoURL + "#" + nameWithHash
+				importID := urlWithHash + "#" + refName
 				Expect(strings.Count(importID, "#")).To(BeNumerically(">", 1))
 
 				req := resource.ImportStateRequest{ID: importID}
@@ -799,8 +829,8 @@ var _ = Describe("GitBranchResource", func() {
 
 				var got branchModel
 				Expect(resp.State.Get(context.Background(), &got).HasError()).To(BeFalse())
-				Expect(got.Repository.Url.ValueString()).To(Equal(repoURL))
-				Expect(got.Name.ValueString()).To(Equal(nameWithHash))
+				Expect(got.Repository.Url.ValueString()).To(Equal(urlWithHash))
+				Expect(got.Name.ValueString()).To(Equal(refName))
 			})
 		})
 	})

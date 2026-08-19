@@ -2,10 +2,12 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -75,9 +77,36 @@ func (r *gitBranchResource) Configure(_ context.Context, req resource.ConfigureR
 	r.client = data.GitClient
 }
 
+// refNotFoundError indicates a ref could not be resolved against a
+// repository's remote refs, as opposed to other failures (network,
+// transport, auth, etc). Callers use errors.As to distinguish this
+// specific "genuinely gone" condition from errors that should be
+// surfaced as diagnostics rather than treated as a delete signal.
+type refNotFoundError struct {
+	ref string
+	url string
+}
+
+func (e *refNotFoundError) Error() string {
+	return fmt.Sprintf("ref %q not found on %s", e.ref, e.url)
+}
+
+// patchesError indicates a failure specific to the "patches" attribute
+// (e.g. reading an unresolved/unknown patch list), as opposed to failures
+// resolving base_ref or applying the patch stack against the remote.
+// Callers use errors.As to map this to an AddAttributeError on "patches"
+// rather than a resource-level diagnostic.
+type patchesError struct {
+	msg string
+}
+
+func (e *patchesError) Error() string {
+	return e.msg
+}
+
 // resolveBranchRef resolves ref against url's remote refs, matching in
 // priority order: exact name, "refs/heads/"+ref, "refs/tags/"+ref. Returns
-// an error if no match is found.
+// a *refNotFoundError if no match is found.
 func resolveBranchRef(ctx context.Context, client git.Client, url string, auth git.Auth, ref string) (string, error) {
 	refs, err := client.LsRemote(ctx, url, auth)
 	if err != nil {
@@ -93,7 +122,7 @@ func resolveBranchRef(ctx context.Context, client git.Client, url string, auth g
 		}
 	}
 
-	return "", fmt.Errorf("ref %q not found on %s", ref, url)
+	return "", &refNotFoundError{ref: ref, url: url}
 }
 
 func (r *gitBranchResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
@@ -146,6 +175,11 @@ func (r *gitBranchResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 				Required:            true,
 				MarkdownDescription: "Ref this branch is based on.",
 			},
+			// base_sha and resolved_ref deliberately have no
+			// UseStateForUnknown plan modifier: per DESIGN.md's
+			// drift-detection design, these must be re-resolved against
+			// the live remote on every plan/read, not carried over from
+			// prior state. Do not add UseStateForUnknown here.
 			"base_sha": schema.StringAttribute{
 				Computed:            true,
 				MarkdownDescription: "Resolved commit hash of `base_ref` as of the last read.",
@@ -187,13 +221,13 @@ func (r *gitBranchResource) resolveModel(ctx context.Context, model *gitBranchRe
 	model.BaseSha = types.StringValue(hash)
 
 	if apply && model.Patches.IsUnknown() {
-		return fmt.Errorf("patches is unknown; cannot apply an unresolved patch stack")
+		return &patchesError{msg: "patches is unknown; cannot apply an unresolved patch stack"}
 	}
 
 	var patches []string
 	if !model.Patches.IsNull() && !model.Patches.IsUnknown() {
 		if diags := model.Patches.ElementsAs(ctx, &patches, false); diags.HasError() {
-			return fmt.Errorf("reading patches: %v", diags)
+			return &patchesError{msg: fmt.Sprintf("reading patches: %v", diags)}
 		}
 	}
 
@@ -235,6 +269,11 @@ func (r *gitBranchResource) Create(ctx context.Context, req resource.CreateReque
 	}
 
 	if err := r.resolveModel(ctx, &model, true); err != nil {
+		var pe *patchesError
+		if errors.As(err, &pe) {
+			resp.Diagnostics.AddAttributeError(path.Root("patches"), "Unable to Create Branch", err.Error())
+			return
+		}
 		resp.Diagnostics.AddError("Unable to Create Branch", err.Error())
 		return
 	}
@@ -253,7 +292,12 @@ func (r *gitBranchResource) Read(ctx context.Context, req resource.ReadRequest, 
 	}
 
 	if err := r.resolveModel(ctx, &model, false); err != nil {
-		resp.State.RemoveResource(ctx)
+		var notFound *refNotFoundError
+		if errors.As(err, &notFound) {
+			resp.State.RemoveResource(ctx)
+			return
+		}
+		resp.Diagnostics.AddError("Unable to Read Branch", err.Error())
 		return
 	}
 
@@ -269,6 +313,11 @@ func (r *gitBranchResource) Update(ctx context.Context, req resource.UpdateReque
 	}
 
 	if err := r.resolveModel(ctx, &model, true); err != nil {
+		var pe *patchesError
+		if errors.As(err, &pe) {
+			resp.Diagnostics.AddAttributeError(path.Root("patches"), "Unable to Update Branch", err.Error())
+			return
+		}
 		resp.Diagnostics.AddError("Unable to Update Branch", err.Error())
 		return
 	}
@@ -285,7 +334,7 @@ func (r *gitBranchResource) Delete(_ context.Context, _ resource.DeleteRequest, 
 }
 
 func (r *gitBranchResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	idx := strings.Index(req.ID, "#")
+	idx := strings.LastIndex(req.ID, "#")
 	if idx == -1 {
 		resp.Diagnostics.AddError("Invalid Import ID", "Expected format: <url>#<name>")
 		return

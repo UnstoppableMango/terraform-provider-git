@@ -205,7 +205,14 @@ func (d *gitPatchDataSource) Read(ctx context.Context, req datasource.ReadReques
 	}
 
 	if err := d.resolve(ctx, &model); err != nil {
-		resp.Diagnostics.AddError("Unable to Resolve Patch", err.Error())
+		switch {
+		case !model.File.IsNull() && !model.File.IsUnknown():
+			resp.Diagnostics.AddAttributeError(path.Root("file"), "Unable to Resolve Patch", err.Error())
+		case model.Github != nil && err.Error() != "github client not configured":
+			resp.Diagnostics.AddAttributeError(path.Root("github"), "Unable to Resolve Patch", err.Error())
+		default:
+			resp.Diagnostics.AddError("Unable to Resolve Patch", err.Error())
+		}
 		return
 	}
 
