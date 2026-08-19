@@ -146,7 +146,11 @@ func (c *client) ApplyPatches(ctx context.Context, req providergit.ApplyPatchesR
 	}
 	resolvedSHA := strings.TrimSpace(sha)
 
-	refspec := fmt.Sprintf("%s:refs/heads/%s", req.Branch, req.Branch)
+	dstRef := req.Branch
+	if !strings.HasPrefix(dstRef, "refs/") {
+		dstRef = "refs/heads/" + dstRef
+	}
+	refspec := fmt.Sprintf("HEAD:%s", dstRef)
 	if _, err := runGit(ctx, gitPath, cloneDir, env, "push", "--force", "origin", refspec); err != nil {
 		return providergit.ApplyPatchesResult{}, fmt.Errorf("pushing %s: %w", req.Branch, err)
 	}

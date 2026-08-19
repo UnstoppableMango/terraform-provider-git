@@ -186,6 +186,10 @@ func (r *gitBranchResource) resolveModel(ctx context.Context, model *gitBranchRe
 	}
 	model.BaseSha = types.StringValue(hash)
 
+	if apply && model.Patches.IsUnknown() {
+		return fmt.Errorf("patches is unknown; cannot apply an unresolved patch stack")
+	}
+
 	var patches []string
 	if !model.Patches.IsNull() && !model.Patches.IsUnknown() {
 		if diags := model.Patches.ElementsAs(ctx, &patches, false); diags.HasError() {
@@ -231,7 +235,7 @@ func (r *gitBranchResource) Create(ctx context.Context, req resource.CreateReque
 	}
 
 	if err := r.resolveModel(ctx, &model, true); err != nil {
-		resp.Diagnostics.AddError("Unable to Resolve Base Ref", err.Error())
+		resp.Diagnostics.AddError("Unable to Create Branch", err.Error())
 		return
 	}
 
@@ -265,7 +269,7 @@ func (r *gitBranchResource) Update(ctx context.Context, req resource.UpdateReque
 	}
 
 	if err := r.resolveModel(ctx, &model, true); err != nil {
-		resp.Diagnostics.AddError("Unable to Resolve Base Ref", err.Error())
+		resp.Diagnostics.AddError("Unable to Update Branch", err.Error())
 		return
 	}
 

@@ -867,11 +867,8 @@ func TestAccGitBranch_basic(t *testing.T) {
 // and expects resolved_ref to differ from base_sha (the patch produced a new
 // commit that was force-pushed to the branch).
 //
-// This depends on a git.Client backend (execgit or gogit) that implements
-// ApplyPatches. At the time this test was written that implementation was
-// being developed in parallel in separate worktrees and may not yet be
-// present; if ApplyPatches is unimplemented the step will fail with a
-// diagnostic rather than silently passing; run it once both backends land.
+// This depends on a git.Client backend that implements ApplyPatches: execgit
+// implements it, gogit currently returns a not-implemented error.
 func TestAccGitBranch_patches(t *testing.T) {
 	repoDir := newTestRepo(t)
 	repoURL := "file://" + repoDir
