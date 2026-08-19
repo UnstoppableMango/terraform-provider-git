@@ -638,6 +638,7 @@ var _ = Describe("GitBranchResource", func() {
 				branchR.Read(context.Background(), req, resp)
 
 				Expect(resp.Diagnostics.HasError()).To(BeTrue())
+				Expect(resp.Diagnostics.Errors()[0].Summary()).To(Equal("base_ref No Longer Resolves, Patches Configured"))
 				Expect(resp.State.Raw.IsNull()).To(BeFalse())
 			})
 		})
