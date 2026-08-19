@@ -3,4 +3,5 @@
 .direnv/
 bin/
 .claude/*
+!.claude/skills/
 *.test
