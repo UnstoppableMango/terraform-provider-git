@@ -60,15 +60,15 @@ var _ = Describe("Client", func() {
 					if wantsDiff(r) {
 						gotDiffPath = r.URL.Path
 						gotDiffAccept = r.Header.Get("Accept")
-						fmt.Fprint(w, diffBody)
+						_, _ = fmt.Fprint(w, diffBody)
 						return
 					}
 					gotJSONPath = r.URL.Path
 					w.Header().Set("Content-Type", "application/json")
-					fmt.Fprintf(w, `{"head":{"sha":%q}}`, headSHA)
+					_, _ = fmt.Fprintf(w, `{"head":{"sha":%q}}`, headSHA)
 				default:
 					w.WriteHeader(http.StatusNotFound)
-					fmt.Fprintf(w, "unexpected path: %s", r.URL.Path)
+					_, _ = fmt.Fprintf(w, "unexpected path: %s", r.URL.Path)
 				}
 			}))
 			defer server.Close()
@@ -91,11 +91,11 @@ var _ = Describe("Client", func() {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if wantsDiff(r) {
 					gotDiffAuth = r.Header.Get("Authorization")
-					fmt.Fprint(w, diffBody)
+					_, _ = fmt.Fprint(w, diffBody)
 					return
 				}
 				gotJSONAuth = r.Header.Get("Authorization")
-				fmt.Fprintf(w, `{"head":{"sha":%q}}`, headSHA)
+				_, _ = fmt.Fprintf(w, `{"head":{"sha":%q}}`, headSHA)
 			}))
 			defer server.Close()
 
@@ -116,10 +116,10 @@ var _ = Describe("Client", func() {
 					sawAuthHeader = true
 				}
 				if wantsDiff(r) {
-					fmt.Fprint(w, diffBody)
+					_, _ = fmt.Fprint(w, diffBody)
 					return
 				}
-				fmt.Fprintf(w, `{"head":{"sha":%q}}`, headSHA)
+				_, _ = fmt.Fprintf(w, `{"head":{"sha":%q}}`, headSHA)
 			}))
 			defer server.Close()
 
@@ -134,7 +134,7 @@ var _ = Describe("Client", func() {
 		It("returns an error including the status code for a non-2xx response resolving the pull request", func() {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, `{"message":"Not Found"}`)
+				_, _ = fmt.Fprint(w, `{"message":"Not Found"}`)
 			}))
 			defer server.Close()
 
@@ -150,10 +150,10 @@ var _ = Describe("Client", func() {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if wantsDiff(r) {
 					w.WriteHeader(http.StatusInternalServerError)
-					fmt.Fprint(w, "boom")
+					_, _ = fmt.Fprint(w, "boom")
 					return
 				}
-				fmt.Fprintf(w, `{"head":{"sha":%q}}`, headSHA)
+				_, _ = fmt.Fprintf(w, `{"head":{"sha":%q}}`, headSHA)
 			}))
 			defer server.Close()
 
@@ -174,7 +174,7 @@ var _ = Describe("Client", func() {
 				gotPath = r.URL.Path
 				gotAccept = r.Header.Get("Accept")
 				Expect(r.Method).To(Equal(http.MethodGet))
-				fmt.Fprint(w, diffBody)
+				_, _ = fmt.Fprint(w, diffBody)
 			}))
 			defer server.Close()
 
@@ -194,7 +194,7 @@ var _ = Describe("Client", func() {
 
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				gotAuth = r.Header.Get("Authorization")
-				fmt.Fprint(w, diffBody)
+				_, _ = fmt.Fprint(w, diffBody)
 			}))
 			defer server.Close()
 
@@ -211,7 +211,7 @@ var _ = Describe("Client", func() {
 
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				sawAuthHeader = r.Header.Get("Authorization") != ""
-				fmt.Fprint(w, diffBody)
+				_, _ = fmt.Fprint(w, diffBody)
 			}))
 			defer server.Close()
 
@@ -226,7 +226,7 @@ var _ = Describe("Client", func() {
 		It("returns an error including the status code for a non-2xx response", func() {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, `{"message":"Not Found"}`)
+				_, _ = fmt.Fprint(w, `{"message":"Not Found"}`)
 			}))
 			defer server.Close()
 

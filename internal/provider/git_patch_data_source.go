@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 
@@ -150,6 +151,13 @@ func (d *gitPatchDataSource) ConfigValidators(_ context.Context) []datasource.Co
 	}
 }
 
+// errGithubNotConfigured is returned by resolve when a github source is
+// configured but the provider has no github client. Callers use errors.Is
+// to distinguish this provider-configuration problem from errors caused by
+// the github attribute's own content, which should instead be reported as
+// an attribute-scoped diagnostic.
+var errGithubNotConfigured = errors.New("github client not configured")
+
 // resolve derives diff (and, when github is set, github.sha) from whichever
 // of content, file, or github is set on model, and computes id as the hex
 // sha256 digest of the resolved diff.
@@ -167,7 +175,7 @@ func (d *gitPatchDataSource) resolve(ctx context.Context, model *gitPatchResourc
 		diff = string(content)
 	case model.Github != nil:
 		if d.github == nil {
-			return fmt.Errorf("github client not configured")
+			return errGithubNotConfigured
 		}
 
 		token := tokenFromModel(model.Auth)
@@ -205,7 +213,14 @@ func (d *gitPatchDataSource) Read(ctx context.Context, req datasource.ReadReques
 	}
 
 	if err := d.resolve(ctx, &model); err != nil {
-		resp.Diagnostics.AddError("Unable to Resolve Patch", err.Error())
+		switch {
+		case !model.File.IsNull() && !model.File.IsUnknown():
+			resp.Diagnostics.AddAttributeError(path.Root("file"), "Unable to Resolve Patch", err.Error())
+		case model.Github != nil && !errors.Is(err, errGithubNotConfigured):
+			resp.Diagnostics.AddAttributeError(path.Root("github"), "Unable to Resolve Patch", err.Error())
+		default:
+			resp.Diagnostics.AddError("Unable to Resolve Patch", err.Error())
+		}
 		return
 	}
 

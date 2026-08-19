@@ -6,11 +6,17 @@ build:
 test:
 	ginkgo run -r
 
+test-acc:
+	TF_ACC=1 go test ./...
+
 update:
 	nix flake update
 
-check lint:
+check lint: lint-go
 	nix flake check
+
+lint-go:
+	golangci-lint run ./...
 
 format fmt:
 	nix fmt

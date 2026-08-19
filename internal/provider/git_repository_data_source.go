@@ -7,6 +7,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
@@ -136,7 +137,7 @@ func (d *gitRepositoryDataSource) Read(ctx context.Context, req datasource.ReadR
 	}
 
 	if err := d.verifyReachable(ctx, config.Url.ValueString(), authFromModel(config.Host, config.Auth)); err != nil {
-		resp.Diagnostics.AddWarning("Unable to Reach Repository", err.Error())
+		resp.Diagnostics.AddAttributeWarning(path.Root("url"), "Unable to Reach Repository", err.Error())
 	}
 
 	config.Id = config.Url

@@ -50,7 +50,13 @@
               ginkgo
               gnumake
               nixfmt
+              golangci-lint
+              opentofu
             ];
+
+            TF_ACC_TERRAFORM_PATH = "${pkgs.opentofu}/bin/tofu";
+            TF_ACC_PROVIDER_NAMESPACE = "hashicorp";
+            TF_ACC_PROVIDER_HOST = "registry.opentofu.org";
           };
 
           treefmt.programs = {

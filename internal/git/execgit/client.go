@@ -64,7 +64,7 @@ func gitEnv(auth providergit.Auth) (env []string, cleanup func(), err error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		cleanup = func() { os.Remove(scriptPath) }
+		cleanup = func() { _ = os.Remove(scriptPath) }
 
 		env = append(env,
 			"GIT_ASKPASS="+scriptPath,
@@ -92,7 +92,7 @@ func (c *client) ApplyPatches(ctx context.Context, req providergit.ApplyPatchesR
 	if err != nil {
 		return providergit.ApplyPatchesResult{}, fmt.Errorf("creating workdir: %w", err)
 	}
-	defer os.RemoveAll(workdir)
+	defer func() { _ = os.RemoveAll(workdir) }()
 
 	cloneDir := filepath.Join(workdir, "repo")
 
@@ -120,7 +120,7 @@ func (c *client) ApplyPatches(ctx context.Context, req providergit.ApplyPatchesR
 		patchPath := patchFile.Name()
 
 		if _, err := patchFile.WriteString(patch); err != nil {
-			patchFile.Close()
+			_ = patchFile.Close()
 			return providergit.ApplyPatchesResult{}, fmt.Errorf("writing patch %d: %w", i+1, err)
 		}
 		if err := patchFile.Close(); err != nil {
@@ -184,16 +184,16 @@ func writeAskpassScript() (path string, err error) {
 	path = f.Name()
 
 	if _, err := f.Write(askpassScript); err != nil {
-		f.Close()
-		os.Remove(path)
+		_ = f.Close()
+		_ = os.Remove(path)
 		return "", err
 	}
 	if err := f.Close(); err != nil {
-		os.Remove(path)
+		_ = os.Remove(path)
 		return "", err
 	}
 	if err := os.Chmod(path, 0o700); err != nil {
-		os.Remove(path)
+		_ = os.Remove(path)
 		return "", err
 	}
 
