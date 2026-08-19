@@ -643,6 +643,35 @@ var _ = Describe("GitBranchResource", func() {
 			})
 		})
 
+		Context("when the branch's own tip no longer resolves (deleted upstream)", func() {
+			It("removes the resource from state with a warning diagnostic explaining why", func() {
+				fake := &fakeGitClient{
+					lsRemoteFunc: func(ctx context.Context, url string, auth git.Auth) ([]git.Ref, error) {
+						// base_ref ("gone-base") still resolves, but the
+						// tracked branch's own tip (refName) is gone from
+						// the remote's ref list.
+						return []git.Ref{{Name: "refs/heads/gone-base", Hash: oldHash}}, nil
+					},
+				}
+				branchR := newBranchResourceWithClient(fake)
+				s := branchResourceSchema(branchR)
+
+				m := stateModelWithPatches(oldHash, []string{"diff --git a b"})
+				m.BaseRef = types.StringValue("gone-base")
+
+				initial := buildBranchState(s, m)
+				req := resource.ReadRequest{State: initial}
+				resp := &resource.ReadResponse{State: tfsdk.State{Schema: s, Raw: initial.Raw}}
+
+				branchR.Read(context.Background(), req, resp)
+
+				Expect(resp.Diagnostics.HasError()).To(BeFalse(), fmt.Sprintf("%v", resp.Diagnostics))
+				Expect(resp.Diagnostics.WarningsCount()).To(Equal(1))
+				Expect(resp.Diagnostics.Warnings()[0].Summary()).To(Equal("Branch No Longer Exists, Removing From State"))
+				Expect(resp.State.Raw.IsNull()).To(BeTrue())
+			})
+		})
+
 		Context("when listing remote refs fails for a reason other than the ref being gone", func() {
 			It("adds an error diagnostic and does not remove the resource from state", func() {
 				fake := &fakeGitClient{

@@ -351,6 +351,16 @@ func (r *gitBranchResource) Read(ctx context.Context, req resource.ReadRequest, 
 			// as a diagnostic rather than silently deleting state.
 			noPatches := model.Patches.IsNull() || len(model.Patches.Elements()) == 0
 			if notFound.kind == refKindBranchTip {
+				resp.Diagnostics.AddWarning(
+					"Branch No Longer Exists, Removing From State",
+					fmt.Sprintf(
+						"Branch %q could not be resolved against %s's remote refs. "+
+							"It may have been deleted on the remote outside of Terraform. "+
+							"Removing this resource from Terraform state; the next apply "+
+							"will recreate the branch (and re-push its patch stack, if any).",
+						model.Name.ValueString(), model.Repository.Url.ValueString(),
+					),
+				)
 				resp.State.RemoveResource(ctx)
 				return
 			}
