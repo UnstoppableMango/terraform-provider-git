@@ -521,7 +521,6 @@ var _ = Describe("GitBranchResource", func() {
 			})
 		})
 
-<<<<<<< HEAD
 		Context("when base_ref no longer resolves but patches are set and the branch's own tip still resolves", func() {
 			It("adds an error diagnostic and does not remove the resource from state", func() {
 				fake := &fakeGitClient{
@@ -549,8 +548,6 @@ var _ = Describe("GitBranchResource", func() {
 			})
 		})
 
-=======
->>>>>>> 092f449 (TF code review)
 		Context("when listing remote refs fails for a reason other than the ref being gone", func() {
 			It("adds an error diagnostic and does not remove the resource from state", func() {
 				fake := &fakeGitClient{

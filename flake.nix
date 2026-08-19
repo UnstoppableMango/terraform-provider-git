@@ -37,9 +37,6 @@
           _module.args.pkgs = import inputs.nixpkgs {
             inherit system;
             overlays = with inputs; [ gomod2nix.overlays.default ];
-            # terraform (needed in devShell for acceptance tests, which shell
-            # out to the `terraform` binary) is BSL-licensed/unfree.
-            config.allowUnfree = true;
           };
 
           packages.default = pkgs.callPackage ./nix { inherit version; };
