@@ -350,7 +350,22 @@ func (r *gitBranchResource) Read(ctx context.Context, req resource.ReadRequest, 
 			// otherwise the branch may still exist and this should surface
 			// as a diagnostic rather than silently deleting state.
 			noPatches := model.Patches.IsNull() || len(model.Patches.Elements()) == 0
-			if notFound.kind == refKindBranchTip || (notFound.kind == refKindBase && noPatches) {
+			if notFound.kind == refKindBranchTip {
+				resp.State.RemoveResource(ctx)
+				return
+			}
+			if notFound.kind == refKindBase && noPatches {
+				resp.Diagnostics.AddWarning(
+					"base_ref No Longer Resolves, Removing From State",
+					fmt.Sprintf(
+						"base_ref %q could not be resolved against %s's remote refs. "+
+							"Since no patches are configured, this branch resource has no "+
+							"state independent of base_ref, so it is being removed from "+
+							"Terraform state. If this is unexpected, verify base_ref "+
+							"still exists on the remote.",
+						model.BaseRef.ValueString(), model.Repository.Url.ValueString(),
+					),
+				)
 				resp.State.RemoveResource(ctx)
 				return
 			}

@@ -589,7 +589,7 @@ var _ = Describe("GitBranchResource", func() {
 		})
 
 		Context("when the base ref no longer resolves", func() {
-			It("removes the resource from state without an error diagnostic", func() {
+			It("removes the resource from state with a warning diagnostic explaining why", func() {
 				fake := &fakeGitClient{
 					lsRemoteFunc: func(ctx context.Context, url string, auth git.Auth) ([]git.Ref, error) {
 						// Remote is reachable, but the ref itself is gone
@@ -609,6 +609,8 @@ var _ = Describe("GitBranchResource", func() {
 				branchR.Read(context.Background(), req, resp)
 
 				Expect(resp.Diagnostics.HasError()).To(BeFalse(), fmt.Sprintf("%v", resp.Diagnostics))
+				Expect(resp.Diagnostics.WarningsCount()).To(Equal(1))
+				Expect(resp.Diagnostics.Warnings()[0].Summary()).To(Equal("base_ref No Longer Resolves, Removing From State"))
 				Expect(resp.State.Raw.IsNull()).To(BeTrue())
 			})
 		})
