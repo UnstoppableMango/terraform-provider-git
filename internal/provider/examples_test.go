@@ -63,8 +63,9 @@ func TestAccExampleGitPatch(t *testing.T) {
 }
 
 // TestAccExampleGitHubFull provisions and destroys a real, throwaway
-// repository under the UnstoppableMango GitHub account via the
-// integrations/github provider, then tracks it with this provider. It
+// repository, under whichever GitHub account the provided GITHUB_TOKEN
+// authenticates as, via the integrations/github provider, then tracks it
+// with this provider. It
 // requires a real GitHub token with repo-creation rights and is skipped
 // unless GITHUB_TOKEN is set, on top of the TF_ACC gate every
 // tfresource.Test already applies.
@@ -95,11 +96,17 @@ func TestAccExampleGitHubFull(t *testing.T) {
 }
 
 // checkGitHubRepoDestroyed confirms that no repository named
-// terraform-provider-git-example-* remains under UnstoppableMango after the
-// test run.
+// terraform-provider-git-example-* remains under the GitHub account that
+// GITHUB_TOKEN authenticates as, after the test run.
 func checkGitHubRepoDestroyed(token string) tfresource.TestCheckFunc {
 	return func(s *terraform.State) error {
 		client := gogithub.NewClient(nil).WithAuthToken(token)
+
+		user, _, err := client.Users.Get(context.Background(), "")
+		if err != nil {
+			return fmt.Errorf("looking up authenticated GitHub user: %w", err)
+		}
+		owner := user.GetLogin()
 
 		for _, rs := range s.RootModule().Resources {
 			if rs.Type != "github_repository" {
@@ -107,7 +114,7 @@ func checkGitHubRepoDestroyed(token string) tfresource.TestCheckFunc {
 			}
 
 			name := rs.Primary.Attributes["name"]
-			_, resp, err := client.Repositories.Get(context.Background(), "UnstoppableMango", name)
+			_, resp, err := client.Repositories.Get(context.Background(), owner, name)
 			if err == nil {
 				return fmt.Errorf("repository %s still exists after destroy", name)
 			}

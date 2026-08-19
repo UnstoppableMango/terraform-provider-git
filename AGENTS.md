@@ -9,7 +9,7 @@ See [GOALS.md](GOALS.md) for the vision/non-goals and [docs/DESIGN.md](docs/DESI
 
 ## Commands
 
-Dev shell is Nix-managed (`flake.nix`, direnv auto-loads it via `.envrc`). Everything below assumes that shell (`GO`, `GOMOD2NIX`, `GINKGO` env vars point at Nix store binaries).
+Dev shell is Nix-managed (`flake.nix`, direnv auto-loads it via `.envrc`). Everything below assumes that shell (`go`, `gomod2nix`, and `ginkgo` are available directly on `PATH`).
 
 - Build: `make build` (wraps `nix build .#`)
 - Test (all): `make test` (wraps `ginkgo run -r`)
