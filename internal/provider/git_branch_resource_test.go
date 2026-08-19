@@ -46,6 +46,7 @@ type branchRepoModel struct {
 type fakeGitClient struct {
 	lsRemoteFunc     func(ctx context.Context, url string, auth git.Auth) ([]git.Ref, error)
 	applyPatchesFunc func(ctx context.Context, req git.ApplyPatchesRequest) (git.ApplyPatchesResult, error)
+	isAncestorFunc   func(ctx context.Context, url string, auth git.Auth, ancestor, descendant string) (bool, error)
 
 	gotURL  string
 	gotAuth git.Auth
@@ -67,6 +68,13 @@ func (f *fakeGitClient) ApplyPatches(ctx context.Context, req git.ApplyPatchesRe
 		panic("fakeGitClient: ApplyPatches called but applyPatchesFunc is nil")
 	}
 	return f.applyPatchesFunc(ctx, req)
+}
+
+func (f *fakeGitClient) IsAncestor(ctx context.Context, url string, auth git.Auth, ancestor, descendant string) (bool, error) {
+	if f.isAncestorFunc == nil {
+		panic("fakeGitClient: IsAncestor called but isAncestorFunc is nil")
+	}
+	return f.isAncestorFunc(ctx, url, auth, ancestor, descendant)
 }
 
 // newBranchResourceWithClient returns a git_branch resource.Resource with its
@@ -471,11 +479,16 @@ var _ = Describe("GitBranchResource", func() {
 			return m
 		}
 
-		Context("when the base ref has drifted to a new hash", func() {
-			It("updates base_sha and resolved_ref to the newly resolved hash", func() {
+		Context("when the base ref has drifted to a new hash that fast-forwards from the old one", func() {
+			It("updates base_sha and resolved_ref to the newly resolved hash without a warning", func() {
+				var gotAncestor, gotDescendant string
 				fake := &fakeGitClient{
 					lsRemoteFunc: func(ctx context.Context, url string, auth git.Auth) ([]git.Ref, error) {
 						return []git.Ref{{Name: "refs/heads/main", Hash: newHash}}, nil
+					},
+					isAncestorFunc: func(ctx context.Context, url string, auth git.Auth, ancestor, descendant string) (bool, error) {
+						gotAncestor, gotDescendant = ancestor, descendant
+						return true, nil
 					},
 				}
 				branchR := newBranchResourceWithClient(fake)
@@ -488,11 +501,90 @@ var _ = Describe("GitBranchResource", func() {
 				branchR.Read(context.Background(), req, resp)
 
 				Expect(resp.Diagnostics.HasError()).To(BeFalse(), fmt.Sprintf("%v", resp.Diagnostics))
+				Expect(resp.Diagnostics.WarningsCount()).To(Equal(0))
+				Expect(gotAncestor).To(Equal(oldHash))
+				Expect(gotDescendant).To(Equal(newHash))
 
 				var got branchModel
 				Expect(resp.State.Get(context.Background(), &got).HasError()).To(BeFalse())
 				Expect(got.BaseSha.ValueString()).To(Equal(newHash))
 				Expect(got.ResolvedRef.ValueString()).To(Equal(newHash))
+			})
+		})
+
+		Context("when the base ref has drifted to a new hash that is not a fast-forward of the old one", func() {
+			It("adds a warning diagnostic but still updates base_sha and resolved_ref", func() {
+				fake := &fakeGitClient{
+					lsRemoteFunc: func(ctx context.Context, url string, auth git.Auth) ([]git.Ref, error) {
+						return []git.Ref{{Name: "refs/heads/main", Hash: newHash}}, nil
+					},
+					isAncestorFunc: func(ctx context.Context, url string, auth git.Auth, ancestor, descendant string) (bool, error) {
+						return false, nil
+					},
+				}
+				branchR := newBranchResourceWithClient(fake)
+				s := branchResourceSchema(branchR)
+
+				initial := buildBranchState(s, stateModel(oldHash))
+				req := resource.ReadRequest{State: initial}
+				resp := &resource.ReadResponse{State: tfsdk.State{Schema: s, Raw: initial.Raw}}
+
+				branchR.Read(context.Background(), req, resp)
+
+				Expect(resp.Diagnostics.HasError()).To(BeFalse(), fmt.Sprintf("%v", resp.Diagnostics))
+				Expect(resp.Diagnostics.WarningsCount()).To(Equal(1))
+
+				var got branchModel
+				Expect(resp.State.Get(context.Background(), &got).HasError()).To(BeFalse())
+				Expect(got.BaseSha.ValueString()).To(Equal(newHash))
+				Expect(got.ResolvedRef.ValueString()).To(Equal(newHash))
+			})
+		})
+
+		Context("when checking base ref ancestry fails", func() {
+			It("adds an error diagnostic", func() {
+				fake := &fakeGitClient{
+					lsRemoteFunc: func(ctx context.Context, url string, auth git.Auth) ([]git.Ref, error) {
+						return []git.Ref{{Name: "refs/heads/main", Hash: newHash}}, nil
+					},
+					isAncestorFunc: func(ctx context.Context, url string, auth git.Auth, ancestor, descendant string) (bool, error) {
+						return false, fmt.Errorf("transport failure")
+					},
+				}
+				branchR := newBranchResourceWithClient(fake)
+				s := branchResourceSchema(branchR)
+
+				initial := buildBranchState(s, stateModel(oldHash))
+				req := resource.ReadRequest{State: initial}
+				resp := &resource.ReadResponse{State: tfsdk.State{Schema: s, Raw: initial.Raw}}
+
+				branchR.Read(context.Background(), req, resp)
+
+				Expect(resp.Diagnostics.HasError()).To(BeTrue())
+			})
+		})
+
+		Context("when the base ref has not drifted", func() {
+			It("never calls IsAncestor", func() {
+				fake := &fakeGitClient{
+					lsRemoteFunc: func(ctx context.Context, url string, auth git.Auth) ([]git.Ref, error) {
+						return []git.Ref{{Name: "refs/heads/main", Hash: oldHash}}, nil
+					},
+					// isAncestorFunc intentionally left nil: if Read calls
+					// IsAncestor it will panic and fail this test.
+				}
+				branchR := newBranchResourceWithClient(fake)
+				s := branchResourceSchema(branchR)
+
+				initial := buildBranchState(s, stateModel(oldHash))
+				req := resource.ReadRequest{State: initial}
+				resp := &resource.ReadResponse{State: tfsdk.State{Schema: s, Raw: initial.Raw}}
+
+				Expect(func() {
+					branchR.Read(context.Background(), req, resp)
+				}).NotTo(Panic())
+
+				Expect(resp.Diagnostics.HasError()).To(BeFalse(), fmt.Sprintf("%v", resp.Diagnostics))
 			})
 		})
 
@@ -578,6 +670,9 @@ var _ = Describe("GitBranchResource", func() {
 						// the base ref lookup and the branch-tip lookup.
 						return []git.Ref{{Name: "refs/heads/main", Hash: newHash}}, nil
 					},
+					isAncestorFunc: func(ctx context.Context, url string, auth git.Auth, ancestor, descendant string) (bool, error) {
+						return true, nil
+					},
 					// applyPatchesFunc intentionally left nil: if Read calls
 					// ApplyPatches it will panic and fail this test.
 				}
@@ -629,6 +724,22 @@ var _ = Describe("GitBranchResource", func() {
 			return m
 		}
 
+		// priorStateModel builds the resource's prior state, i.e. what Update
+		// reads via req.State to compare against the newly resolved base_sha
+		// for the fast-forward/rewrite check. base == "" means no prior
+		// observation (skips the check, like the model right after Create).
+		priorStateModel := func(base string) branchModel {
+			return branchModel{
+				Id:          types.StringValue(repoURL + "#" + refName),
+				Repository:  branchRepoModel{Url: types.StringValue(repoURL), Host: types.StringNull(), Auth: nil},
+				Name:        types.StringValue(refName),
+				BaseRef:     types.StringValue(refName),
+				BaseSha:     types.StringValue(base),
+				ResolvedRef: types.StringValue(base),
+				Patches:     types.ListNull(types.StringType),
+			}
+		}
+
 		Context("when the base ref resolves successfully", func() {
 			It("sets base_sha, resolved_ref, and id from the plan, and writes state", func() {
 				fake := &fakeGitClient{
@@ -639,7 +750,10 @@ var _ = Describe("GitBranchResource", func() {
 				branchR := newBranchResourceWithClient(fake)
 				s := branchResourceSchema(branchR)
 
-				req := resource.UpdateRequest{Plan: buildBranchPlan(s, planModel())}
+				req := resource.UpdateRequest{
+					Plan:  buildBranchPlan(s, planModel()),
+					State: buildBranchState(s, priorStateModel(hash)),
+				}
 				resp := &resource.UpdateResponse{State: tfsdk.State{Schema: s}}
 
 				branchR.Update(context.Background(), req, resp)
@@ -664,7 +778,10 @@ var _ = Describe("GitBranchResource", func() {
 				branchR := newBranchResourceWithClient(fake)
 				s := branchResourceSchema(branchR)
 
-				req := resource.UpdateRequest{Plan: buildBranchPlan(s, planModel())}
+				req := resource.UpdateRequest{
+					Plan:  buildBranchPlan(s, planModel()),
+					State: buildBranchState(s, priorStateModel(hash)),
+				}
 				resp := &resource.UpdateResponse{State: tfsdk.State{Schema: s}}
 
 				Expect(func() {
@@ -693,7 +810,10 @@ var _ = Describe("GitBranchResource", func() {
 				branchR := newBranchResourceWithClient(fake)
 				s := branchResourceSchema(branchR)
 
-				req := resource.UpdateRequest{Plan: buildBranchPlan(s, planModelWithPatches(patches))}
+				req := resource.UpdateRequest{
+					Plan:  buildBranchPlan(s, planModelWithPatches(patches)),
+					State: buildBranchState(s, priorStateModel(hash)),
+				}
 				resp := &resource.UpdateResponse{State: tfsdk.State{Schema: s}}
 
 				branchR.Update(context.Background(), req, resp)
@@ -726,7 +846,10 @@ var _ = Describe("GitBranchResource", func() {
 				branchR := newBranchResourceWithClient(fake)
 				s := branchResourceSchema(branchR)
 
-				req := resource.UpdateRequest{Plan: buildBranchPlan(s, planModelWithPatches(patches))}
+				req := resource.UpdateRequest{
+					Plan:  buildBranchPlan(s, planModelWithPatches(patches)),
+					State: buildBranchState(s, priorStateModel(hash)),
+				}
 				resp := &resource.UpdateResponse{State: tfsdk.State{Schema: s}}
 
 				Expect(func() {
@@ -734,6 +857,92 @@ var _ = Describe("GitBranchResource", func() {
 				}).NotTo(Panic())
 
 				Expect(resp.Diagnostics.HasError()).To(BeTrue())
+			})
+		})
+
+		Context("when the base ref resolves to a hash that fast-forwards the prior base_sha", func() {
+			It("does not add a warning diagnostic", func() {
+				const oldHash = "3333333333333333333333333333333333333d"
+				fake := &fakeGitClient{
+					lsRemoteFunc: func(ctx context.Context, url string, auth git.Auth) ([]git.Ref, error) {
+						return []git.Ref{{Name: "refs/heads/main", Hash: hash}}, nil
+					},
+					isAncestorFunc: func(ctx context.Context, url string, auth git.Auth, ancestor, descendant string) (bool, error) {
+						Expect(ancestor).To(Equal(oldHash))
+						Expect(descendant).To(Equal(hash))
+						return true, nil
+					},
+				}
+				branchR := newBranchResourceWithClient(fake)
+				s := branchResourceSchema(branchR)
+
+				req := resource.UpdateRequest{
+					Plan:  buildBranchPlan(s, planModel()),
+					State: buildBranchState(s, priorStateModel(oldHash)),
+				}
+				resp := &resource.UpdateResponse{State: tfsdk.State{Schema: s}}
+
+				branchR.Update(context.Background(), req, resp)
+
+				Expect(resp.Diagnostics.HasError()).To(BeFalse(), fmt.Sprintf("%v", resp.Diagnostics))
+				Expect(resp.Diagnostics.WarningsCount()).To(Equal(0))
+			})
+		})
+
+		Context("when the base ref resolves to a hash that is not a fast-forward of the prior base_sha", func() {
+			It("adds a warning diagnostic but still writes state", func() {
+				const oldHash = "3333333333333333333333333333333333333d"
+				fake := &fakeGitClient{
+					lsRemoteFunc: func(ctx context.Context, url string, auth git.Auth) ([]git.Ref, error) {
+						return []git.Ref{{Name: "refs/heads/main", Hash: hash}}, nil
+					},
+					isAncestorFunc: func(ctx context.Context, url string, auth git.Auth, ancestor, descendant string) (bool, error) {
+						return false, nil
+					},
+				}
+				branchR := newBranchResourceWithClient(fake)
+				s := branchResourceSchema(branchR)
+
+				req := resource.UpdateRequest{
+					Plan:  buildBranchPlan(s, planModel()),
+					State: buildBranchState(s, priorStateModel(oldHash)),
+				}
+				resp := &resource.UpdateResponse{State: tfsdk.State{Schema: s}}
+
+				branchR.Update(context.Background(), req, resp)
+
+				Expect(resp.Diagnostics.HasError()).To(BeFalse(), fmt.Sprintf("%v", resp.Diagnostics))
+				Expect(resp.Diagnostics.WarningsCount()).To(Equal(1))
+
+				var got branchModel
+				Expect(resp.State.Get(context.Background(), &got).HasError()).To(BeFalse())
+				Expect(got.BaseSha.ValueString()).To(Equal(hash))
+			})
+		})
+
+		Context("when there is no prior base_sha (e.g. right after Create)", func() {
+			It("never calls IsAncestor", func() {
+				fake := &fakeGitClient{
+					lsRemoteFunc: func(ctx context.Context, url string, auth git.Auth) ([]git.Ref, error) {
+						return []git.Ref{{Name: "refs/heads/main", Hash: hash}}, nil
+					},
+					// isAncestorFunc intentionally left nil: if Update calls
+					// IsAncestor it will panic and fail this test.
+				}
+				branchR := newBranchResourceWithClient(fake)
+				s := branchResourceSchema(branchR)
+
+				req := resource.UpdateRequest{
+					Plan:  buildBranchPlan(s, planModel()),
+					State: buildBranchState(s, priorStateModel("")),
+				}
+				resp := &resource.UpdateResponse{State: tfsdk.State{Schema: s}}
+
+				Expect(func() {
+					branchR.Update(context.Background(), req, resp)
+				}).NotTo(Panic())
+
+				Expect(resp.Diagnostics.HasError()).To(BeFalse(), fmt.Sprintf("%v", resp.Diagnostics))
 			})
 		})
 	})

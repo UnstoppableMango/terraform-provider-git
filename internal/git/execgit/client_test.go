@@ -134,6 +134,69 @@ var _ = Describe("Client", func() {
 			Expect(showRefs(origin)).To(Equal(refsBefore))
 		})
 	})
+
+	Describe("IsAncestor", func() {
+		It("reports true when ancestor is an ancestor of descendant", func() {
+			origin := newTestRepo()
+			a := revParse(origin, "HEAD")
+			commitFile(origin, "README.md", "two\n")
+			b := revParse(origin, "HEAD")
+
+			client := execgit.New()
+			isAncestor, err := client.IsAncestor(context.Background(), "file://"+origin, providergit.Auth{}, a, b)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(isAncestor).To(BeTrue())
+		})
+
+		It("reports true when ancestor and descendant are the same commit", func() {
+			origin := newTestRepo()
+			a := revParse(origin, "HEAD")
+
+			client := execgit.New()
+			isAncestor, err := client.IsAncestor(context.Background(), "file://"+origin, providergit.Auth{}, a, a)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(isAncestor).To(BeTrue())
+		})
+
+		It("reports false when descendant does not contain ancestor in its history", func() {
+			origin := newTestRepo()
+			a := revParse(origin, "HEAD")
+			commitFile(origin, "README.md", "unrelated\n")
+			b := revParse(origin, "HEAD")
+
+			client := execgit.New()
+			// b is a descendant of a here, so check it in reverse: a is not
+			// reachable from a commit that predates it.
+			isAncestor, err := client.IsAncestor(context.Background(), "file://"+origin, providergit.Auth{}, b, a)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(isAncestor).To(BeFalse())
+		})
+
+		It("falls back to a full fetch and reports false when ancestor can't be fetched directly (e.g. rewritten away)", func() {
+			origin := newTestRepo()
+			gone := "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+			commitFile(origin, "README.md", "two\n")
+			b := revParse(origin, "HEAD")
+
+			client := execgit.New()
+			isAncestor, err := client.IsAncestor(context.Background(), "file://"+origin, providergit.Auth{}, gone, b)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(isAncestor).To(BeFalse())
+		})
+
+		It("returns an error for an unreachable repository", func() {
+			client := execgit.New()
+
+			_, err := client.IsAncestor(context.Background(), "file:///nonexistent/path/xyz", providergit.Auth{},
+				"0000000000000000000000000000000000000a", "0000000000000000000000000000000000000b")
+
+			Expect(err).To(HaveOccurred())
+		})
+	})
 })
 
 // makeSequentialPatch clones origin to a scratch directory, changes path's
@@ -175,6 +238,15 @@ func gitDiff(dir, revA, revB string) string {
 	out, err := cmd.Output()
 	Expect(err).NotTo(HaveOccurred())
 	return string(out)
+}
+
+// commitFile writes newContent to path in dir's worktree and commits it
+// directly (no separate clone), advancing dir's HEAD by one commit.
+func commitFile(dir, path, newContent string) {
+	fullPath := filepath.Join(dir, path)
+	Expect(os.WriteFile(fullPath, []byte(newContent), 0o644)).To(Succeed())
+	runGit(dir, "add", path)
+	runGit(dir, "commit", "-m", "advance")
 }
 
 func revParse(dir, rev string) string {
