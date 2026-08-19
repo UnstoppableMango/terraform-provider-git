@@ -60,8 +60,10 @@
 
           treefmt.programs = {
             actionlint.enable = true;
-            nixfmt.enable = true;
             gofmt.enable = true;
+            mdformat.enable = true;
+            nixfmt.enable = true;
+            shellcheck.enable = true;
           };
         };
     };
