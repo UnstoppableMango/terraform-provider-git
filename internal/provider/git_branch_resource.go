@@ -369,6 +369,24 @@ func (r *gitBranchResource) Read(ctx context.Context, req resource.ReadRequest, 
 				resp.State.RemoveResource(ctx)
 				return
 			}
+			if notFound.kind == refKindBase && !noPatches {
+				// Patches are configured, so the branch's tracked tip may
+				// still exist independent of base_ref (e.g. from a prior
+				// force-push); state can't be silently removed the way it
+				// is above. Surface this as a hard error instead.
+				resp.Diagnostics.AddError(
+					"base_ref No Longer Resolves, Patches Configured",
+					fmt.Sprintf(
+						"base_ref %q could not be resolved against %s's remote refs. "+
+							"Patches are configured on this branch, so its tracked tip may "+
+							"still exist independent of base_ref; the resource is not being "+
+							"removed from state. Update base_ref to a ref that still exists, "+
+							"or resolve the drift on the remote.",
+						model.BaseRef.ValueString(), model.Repository.Url.ValueString(),
+					),
+				)
+				return
+			}
 		}
 		resp.Diagnostics.AddError("Unable to Read Branch", err.Error())
 		return
