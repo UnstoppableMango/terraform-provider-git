@@ -4,7 +4,7 @@ build:
 	nix build .#
 
 test:
-	ginkgo run -r
+	go tool ginkgo run -r
 
 test-acc:
 	TF_ACC=1 go test ./...
