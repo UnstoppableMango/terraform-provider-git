@@ -63,7 +63,7 @@ Because the stack is rewritten on each apply, this is a force-push.
 A `git_patch` sourced from a host uses a host-specific nested block rather than a generic URL string or flat type/ref attributes, e.g.:
 
 ```hcl
-resource "git_patch" "example" {
+data "git_patch" "example" {
   github {
     pr = 123
     # or: commit = "abc123"
@@ -75,7 +75,7 @@ This keeps validation host-aware and type-safe, and lets each host expose its ow
 
 ## Import behavior
 
-Import populates state with whatever is actually observed on the remote (base ref, resolved ref), without attempting to map existing commits to a patch stack. It does not fail or attempt to synthesize `git_patch` resources for divergent commits.
+Import populates state with whatever is actually observed on the remote (base ref, resolved ref), without attempting to map existing commits to a patch stack. It does not fail or attempt to synthesize `git_patch` data sources for divergent commits.
 The user's config declares the intended patch stack; the following `terraform plan` shows the normal divergence between observed and declared state, reconciled on the next apply like any other drift. This matches standard Terraform import semantics: import populates state, config decides the target.
 
 ## Workdir lifecycle
