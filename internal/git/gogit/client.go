@@ -137,7 +137,7 @@ func applyFile(wt *git.Worktree, file *gitdiff.File) error {
 			return fmt.Errorf("reading %s: %w", file.OldName, err)
 		}
 		src, err = io.ReadAll(f)
-		f.Close()
+		_ = f.Close()
 		if err != nil {
 			return fmt.Errorf("reading %s: %w", file.OldName, err)
 		}

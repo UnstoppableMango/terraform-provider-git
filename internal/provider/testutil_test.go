@@ -27,7 +27,7 @@ func newTestRepo(t *testing.T) string {
 		panic(fmt.Sprintf("newTestRepo: MkdirTemp: %v", err))
 	}
 	t.Cleanup(func() {
-		os.RemoveAll(dir)
+		_ = os.RemoveAll(dir)
 	})
 
 	runGit(dir, "init")
