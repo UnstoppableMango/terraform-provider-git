@@ -7,7 +7,7 @@ test:
 	ginkgo run -r
 
 test-acc:
-	TF_ACC=1 TF_ACC_TERRAFORM_PATH=$(shell command -v tofu) go test ./...
+	TF_ACC=1 go test ./...
 
 update:
 	nix flake update
