@@ -61,4 +61,14 @@ type Client interface {
 	// ApplyPatches applies req.Patches in order as commits on top of
 	// req.BaseRef, then force-pushes the result to req.Branch on req.URL.
 	ApplyPatches(ctx context.Context, req ApplyPatchesRequest) (ApplyPatchesResult, error)
+
+	// IsAncestor reports whether ancestor is an ancestor of (or equal to)
+	// descendant in url's history. A false, nil result means "no" — either
+	// genuinely not an ancestor, or ancestor could no longer be found in
+	// url's history even after a full fetch (rewritten away / garbage
+	// collected), which for this provider's purposes is the same
+	// conclusion: the ref did not move forward from ancestor. A non-nil
+	// error means the check itself could not be completed (network, auth,
+	// transport) and should be surfaced like any other backend failure.
+	IsAncestor(ctx context.Context, url string, auth Auth, ancestor, descendant string) (bool, error)
 }

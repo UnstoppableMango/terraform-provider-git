@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -152,6 +153,69 @@ func (c *client) ApplyPatches(ctx context.Context, req providergit.ApplyPatchesR
 	}
 
 	return providergit.ApplyPatchesResult{ResolvedSHA: resolvedSHA}, nil
+}
+
+func (c *client) IsAncestor(ctx context.Context, url string, auth providergit.Auth, ancestor, descendant string) (bool, error) {
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		return false, fmt.Errorf("git binary not found: %w", err)
+	}
+
+	env, cleanup, err := gitEnv(auth)
+	if err != nil {
+		return false, fmt.Errorf("preparing credentials: %w", err)
+	}
+	defer cleanup()
+
+	workdir, err := os.MkdirTemp("", "terraform-provider-git-ancestor-*")
+	if err != nil {
+		return false, fmt.Errorf("creating workdir: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(workdir) }()
+
+	if _, err := runGit(ctx, gitPath, workdir, env, "init", "--quiet"); err != nil {
+		return false, fmt.Errorf("initializing scratch repo: %w", err)
+	}
+
+	// Try fetching just the two commits we care about first (cheap: no
+	// --depth here, since merge-base needs the full ancestry chain behind
+	// descendant to find ancestor in it, but this still avoids fetching
+	// every other branch). Some hosts reject fetching arbitrary SHAs
+	// (uploadpack.allowReachableSHA1InWant disabled); if either fetch
+	// fails, fall back to a full fetch of every branch so merge-base has
+	// complete history to work with.
+	_, ancestorErr := runGit(ctx, gitPath, workdir, env, "fetch", url, ancestor)
+	_, descendantErr := runGit(ctx, gitPath, workdir, env, "fetch", url, descendant)
+	if ancestorErr != nil || descendantErr != nil {
+		if _, err := runGit(ctx, gitPath, workdir, env, "fetch", url, "+refs/heads/*:refs/remotes/origin/*"); err != nil {
+			return false, fmt.Errorf("fetching history from %s: %w", url, err)
+		}
+	}
+
+	return runMergeBaseIsAncestor(ctx, gitPath, workdir, env, ancestor, descendant)
+}
+
+// runMergeBaseIsAncestor reports whether ancestor is an ancestor of
+// descendant among the objects already present in dir. A nonzero exit from
+// `git merge-base --is-ancestor` (not an ancestor, or the object couldn't be
+// found at all) is reported as (false, nil), not an error: from the caller's
+// perspective both mean "no, ancestor is not reachable from descendant".
+// Only a failure to run the command itself is a real error.
+func runMergeBaseIsAncestor(ctx context.Context, gitPath, dir string, env []string, ancestor, descendant string) (bool, error) {
+	cmd := exec.CommandContext(ctx, gitPath, "merge-base", "--is-ancestor", ancestor, descendant)
+	cmd.Dir = dir
+	cmd.Env = env
+
+	err := cmd.Run()
+	if err == nil {
+		return true, nil
+	}
+
+	if _, ok := errors.AsType[*exec.ExitError](err); ok {
+		return false, nil
+	}
+
+	return false, fmt.Errorf("merge-base --is-ancestor %s %s: %w", ancestor, descendant, err)
 }
 
 // runGit runs git with the given args in dir (the process's own working

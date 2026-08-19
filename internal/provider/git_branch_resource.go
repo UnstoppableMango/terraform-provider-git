@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -276,6 +277,37 @@ func (r *gitBranchResource) resolveModel(ctx context.Context, model *gitBranchRe
 	return nil
 }
 
+// checkBaseRefAncestry warns when model.BaseSha changed from oldBaseSha to
+// something that is not a fast-forward of it, so a rewritten upstream
+// history isn't mistaken for base_ref simply moving forward (see DESIGN.md's
+// "base_ref moves upstream" edge case). oldBaseSha == "" (no prior
+// observation, e.g. Create) and an unchanged base_sha are both no-ops.
+func (r *gitBranchResource) checkBaseRefAncestry(ctx context.Context, oldBaseSha string, model *gitBranchResourceModel, diags *diag.Diagnostics) {
+	newBaseSha := model.BaseSha.ValueString()
+	if oldBaseSha == "" || oldBaseSha == newBaseSha {
+		return
+	}
+
+	auth := authFromModel(model.Repository.Host, model.Repository.Auth)
+	url := model.Repository.Url.ValueString()
+
+	isAncestor, err := r.client.IsAncestor(ctx, url, auth, oldBaseSha, newBaseSha)
+	if err != nil {
+		diags.AddError("Unable to Verify Base Ref History", err.Error())
+		return
+	}
+	if !isAncestor {
+		diags.AddWarning(
+			"base_ref Was Rewritten, Not Fast-Forwarded",
+			fmt.Sprintf(
+				"base_ref's previously observed commit (%s) is no longer an ancestor of its newly resolved commit (%s). "+
+					"This usually means base_ref's upstream history was rewritten (e.g. force-pushed) rather than simply moved forward.",
+				oldBaseSha, newBaseSha,
+			),
+		)
+	}
+}
+
 func (r *gitBranchResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var model gitBranchResourceModel
 
@@ -307,6 +339,8 @@ func (r *gitBranchResource) Read(ctx context.Context, req resource.ReadRequest, 
 		return
 	}
 
+	oldBaseSha := model.BaseSha.ValueString()
+
 	if err := r.resolveModel(ctx, &model, false); err != nil {
 		var notFound *refNotFoundError
 		if errors.As(err, &notFound) {
@@ -325,6 +359,8 @@ func (r *gitBranchResource) Read(ctx context.Context, req resource.ReadRequest, 
 		return
 	}
 
+	r.checkBaseRefAncestry(ctx, oldBaseSha, &model, &resp.Diagnostics)
+
 	resp.Diagnostics.Append(resp.State.Set(ctx, &model)...)
 }
 
@@ -335,6 +371,13 @@ func (r *gitBranchResource) Update(ctx context.Context, req resource.UpdateReque
 	if resp.Diagnostics.HasError() {
 		return
 	}
+
+	var priorState gitBranchResourceModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &priorState)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	oldBaseSha := priorState.BaseSha.ValueString()
 
 	if err := r.resolveModel(ctx, &model, true); err != nil {
 		var pe *patchesError
@@ -347,6 +390,8 @@ func (r *gitBranchResource) Update(ctx context.Context, req resource.UpdateReque
 	}
 
 	model.Id = types.StringValue(model.Repository.Url.ValueString() + "#" + model.Name.ValueString())
+
+	r.checkBaseRefAncestry(ctx, oldBaseSha, &model, &resp.Diagnostics)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &model)...)
 }

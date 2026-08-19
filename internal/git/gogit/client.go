@@ -5,6 +5,7 @@ package gogit
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path"
@@ -121,6 +122,60 @@ func (c *client) ApplyPatches(ctx context.Context, req providergit.ApplyPatchesR
 	}
 
 	return providergit.ApplyPatchesResult{ResolvedSHA: resolvedHash.String()}, nil
+}
+
+func (c *client) IsAncestor(ctx context.Context, url string, auth providergit.Auth, ancestor, descendant string) (bool, error) {
+	ancestorHash := plumbing.NewHash(ancestor)
+	descendantHash := plumbing.NewHash(descendant)
+	if ancestorHash == descendantHash {
+		return true, nil
+	}
+
+	storer := memory.NewStorage()
+	remote := git.NewRemote(storer, &config.RemoteConfig{
+		Name: "origin",
+		URLs: []string{url},
+	})
+
+	// Try fetching just the two commits we care about first (cheap). Some
+	// hosts reject fetching arbitrary SHAs; if that fails, fall back to a
+	// full fetch of every branch so ancestry can be checked against
+	// complete history.
+	shaErr := remote.FetchContext(ctx, &git.FetchOptions{
+		Auth: authMethod(auth),
+		RefSpecs: []config.RefSpec{
+			config.RefSpec(ancestor + ":refs/ancestor"),
+			config.RefSpec(descendant + ":refs/descendant"),
+		},
+	})
+	if shaErr != nil && !errors.Is(shaErr, git.NoErrAlreadyUpToDate) {
+		fullErr := remote.FetchContext(ctx, &git.FetchOptions{
+			Auth:     authMethod(auth),
+			RefSpecs: []config.RefSpec{"+refs/heads/*:refs/remotes/origin/*"},
+		})
+		if fullErr != nil && !errors.Is(fullErr, git.NoErrAlreadyUpToDate) {
+			return false, fmt.Errorf("fetching history from %s: %w", url, fullErr)
+		}
+	}
+
+	// A commit that couldn't be found even after the fallback fetch is
+	// treated the same as "not an ancestor" (rewritten away / GC'd), not as
+	// an error — see the IsAncestor doc comment on git.Client.
+	ancestorCommit, err := object.GetCommit(storer, ancestorHash)
+	if err != nil {
+		return false, nil
+	}
+	descendantCommit, err := object.GetCommit(storer, descendantHash)
+	if err != nil {
+		return false, nil
+	}
+
+	isAncestor, err := ancestorCommit.IsAncestor(descendantCommit)
+	if err != nil {
+		return false, fmt.Errorf("checking ancestry: %w", err)
+	}
+
+	return isAncestor, nil
 }
 
 // applyFile applies a single parsed diff file to the worktree's filesystem
