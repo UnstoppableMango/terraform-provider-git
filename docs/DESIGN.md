@@ -53,6 +53,18 @@ When the patch stack no longer applies cleanly (base ref moved upstream, a patch
 - **Fail**: apply errors out with conflict details; the user resolves manually and retries.
 - **Force**: the provider resets the branch to the tracked base ref and reapplies the full patch stack from scratch, discarding drift, to guarantee the declared state wins.
 
+## Edge cases: remote changes between runs
+
+`git_branch` re-resolves both `base_ref` and the branch tip against the live remote on every `Read` (see Read behavior above), so the following situations need explicit handling, not just "whatever the diff shows":
+
+- **`base_ref` moves upstream (fast-forward or history rewrite)**: `Read` picks up the new `base_sha` unconditionally. A fast-forward and a force-pushed rewrite of `base_ref` are currently indistinguishable to the provider; both just look like "the sha changed."
+- **`base_ref` deleted upstream, no patches configured**: treated as the resource itself being gone; state is removed silently, with no diagnostic surfaced explaining why.
+- **`base_ref` deleted upstream, patches configured**: cannot silently delete state (the tracked branch tip may still exist independent of `base_ref`), so this surfaces as a hard error instead of a warning or drift.
+- **Branch tip deleted upstream** (e.g. someone deletes the branch on the host): unconditionally treated as the resource being gone; state is removed and the next `apply` recreates the branch and re-pushes the patch stack, with no confirmation step.
+- **Branch tip changed upstream to something unrelated to the patch stack** (manual push, another tool, another Terraform run): `resolved_ref` reflects the real remote tip on `Read`. What this does to the plan, and whether `Update` corrects it back or force-pushes over it, needs verifying against the actual backend behavior (see Conflict handling above — this is exactly what "Force" mode should own).
+- **Concurrent force-push race**: nothing compares the remote tip immediately before push against the tip last observed on `Read` (no compare-and-swap). Between `Read` and `Update`, another writer can move the branch and have that change silently clobbered by the unconditional force-push in Push behavior. This is the biggest open gap and is where Conflict handling's "Force" vs "Fail" distinction needs to plug in — today there is no detection step at all, so there's nothing to choose between.
+- **Auth revoked/expired between `Read` and `Update`**: must not be misclassified as a missing ref (which triggers state removal); needs to surface as a diagnostic. Worth confirming the exec-backend's error strings can't accidentally match the "ref not found" heuristic.
+
 ## Push behavior
 
 After reconciling the patch stack, `git_branch` pushes the resulting branch to the remote.
