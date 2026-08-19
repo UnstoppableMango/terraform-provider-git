@@ -4,6 +4,7 @@ package gogit
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/go-git/go-git/v5"
@@ -46,6 +47,10 @@ func (c *client) LsRemote(ctx context.Context, url string, auth providergit.Auth
 	}
 
 	return result, nil
+}
+
+func (c *client) ApplyPatches(ctx context.Context, req providergit.ApplyPatchesRequest) (providergit.ApplyPatchesResult, error) {
+	return providergit.ApplyPatchesResult{}, errors.New("go-git backend does not support applying patch stacks yet")
 }
 
 func authMethod(auth providergit.Auth) transport.AuthMethod {

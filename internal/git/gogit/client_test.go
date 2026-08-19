@@ -39,4 +39,20 @@ var _ = Describe("Client", func() {
 			Expect(err).To(HaveOccurred())
 		})
 	})
+
+	Describe("ApplyPatches", func() {
+		It("returns a not-implemented error", func() {
+			client := gogit.New()
+
+			result, err := client.ApplyPatches(context.Background(), providergit.ApplyPatchesRequest{
+				URL:     "file:///nonexistent/path/xyz",
+				Branch:  "main",
+				BaseRef: "deadbeef",
+				Patches: []string{"diff --git a/foo b/foo"},
+			})
+
+			Expect(err).To(HaveOccurred())
+			Expect(result).To(Equal(providergit.ApplyPatchesResult{}))
+		})
+	})
 })

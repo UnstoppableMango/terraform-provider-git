@@ -3,3 +3,4 @@
 .direnv/
 bin/
 .claude/*
+*.test
