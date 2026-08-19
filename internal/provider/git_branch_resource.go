@@ -77,6 +77,7 @@ func (r *gitBranchResource) Configure(_ context.Context, req resource.ConfigureR
 	r.client = data.GitClient
 }
 
+<<<<<<< HEAD
 // refKind identifies which of a branch's two remote refs a refNotFoundError
 // came from: the configured base_ref, or the tracked branch's own tip
 // (looked up by Name). The two carry different implications when a ref
@@ -88,11 +89,14 @@ const (
 	refKindBranchTip
 )
 
+=======
+>>>>>>> 092f449 (TF code review)
 // refNotFoundError indicates a ref could not be resolved against a
 // repository's remote refs, as opposed to other failures (network,
 // transport, auth, etc). Callers use errors.As to distinguish this
 // specific "genuinely gone" condition from errors that should be
 // surfaced as diagnostics rather than treated as a delete signal.
+<<<<<<< HEAD
 //
 // kind matters: base_ref disappearing does not imply the tracked branch
 // itself is gone (it may still exist from a prior force-push), so only a
@@ -101,6 +105,11 @@ type refNotFoundError struct {
 	ref  string
 	url  string
 	kind refKind
+=======
+type refNotFoundError struct {
+	ref string
+	url string
+>>>>>>> 092f449 (TF code review)
 }
 
 func (e *refNotFoundError) Error() string {
@@ -122,8 +131,13 @@ func (e *patchesError) Error() string {
 
 // resolveBranchRef resolves ref against url's remote refs, matching in
 // priority order: exact name, "refs/heads/"+ref, "refs/tags/"+ref. Returns
+<<<<<<< HEAD
 // a *refNotFoundError (tagged with kind) if no match is found.
 func resolveBranchRef(ctx context.Context, client git.Client, url string, auth git.Auth, ref string, kind refKind) (string, error) {
+=======
+// a *refNotFoundError if no match is found.
+func resolveBranchRef(ctx context.Context, client git.Client, url string, auth git.Auth, ref string) (string, error) {
+>>>>>>> 092f449 (TF code review)
 	refs, err := client.LsRemote(ctx, url, auth)
 	if err != nil {
 		return "", fmt.Errorf("listing remote refs: %w", err)
@@ -138,7 +152,11 @@ func resolveBranchRef(ctx context.Context, client git.Client, url string, auth g
 		}
 	}
 
+<<<<<<< HEAD
 	return "", &refNotFoundError{ref: ref, url: url, kind: kind}
+=======
+	return "", &refNotFoundError{ref: ref, url: url}
+>>>>>>> 092f449 (TF code review)
 }
 
 func (r *gitBranchResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
@@ -310,6 +328,7 @@ func (r *gitBranchResource) Read(ctx context.Context, req resource.ReadRequest, 
 	if err := r.resolveModel(ctx, &model, false); err != nil {
 		var notFound *refNotFoundError
 		if errors.As(err, &notFound) {
+<<<<<<< HEAD
 			// A missing branch tip always means the branch itself is gone.
 			// A missing base_ref only means that when there's no patch
 			// stack to have force-pushed a branch tip independent of it;
@@ -320,6 +339,10 @@ func (r *gitBranchResource) Read(ctx context.Context, req resource.ReadRequest, 
 				resp.State.RemoveResource(ctx)
 				return
 			}
+=======
+			resp.State.RemoveResource(ctx)
+			return
+>>>>>>> 092f449 (TF code review)
 		}
 		resp.Diagnostics.AddError("Unable to Read Branch", err.Error())
 		return

@@ -9,6 +9,9 @@ test:
 test-acc:
 	TF_ACC=1 go test ./...
 
+test-acc:
+	TF_ACC=1 go test ./...
+
 update:
 	nix flake update
 
