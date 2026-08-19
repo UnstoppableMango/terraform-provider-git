@@ -23,12 +23,8 @@ import (
 )
 
 // branchModel and branchRepoModel mirror the tfsdk tags of the unexported
-// gitBranchResourceModel/gitBranchRepositoryModel in git_branch_resource.go,
-// so tests in this external provider_test package can build
-// tfsdk.Config/Plan/State values by hand without access to the unexported
-// types. authModel (the auth nested model) is already defined in
-// git_repository_data_source_test.go and is reused here, since the
-// git_branch auth attribute is shaped identically to git_repository's.
+// gitBranchResourceModel/gitBranchRepositoryModel, letting this external test
+// package build tfsdk.Config/Plan/State values without access to those types.
 type branchModel struct {
 	Id          types.String    `tfsdk:"id"`
 	Repository  branchRepoModel `tfsdk:"repository"`
@@ -45,10 +41,8 @@ type branchRepoModel struct {
 	Auth *authModel   `tfsdk:"auth"`
 }
 
-// fakeGitClient is a test double for git.Client, in the style of
-// fakeGitHubClient in testutil_test.go: each method is backed by a
-// configurable function field, and a nil field panics if called so tests
-// only need to set the functions relevant to what they exercise.
+// fakeGitClient is a test double for git.Client: each method is backed by a
+// configurable function field, and a nil field panics if called.
 type fakeGitClient struct {
 	lsRemoteFunc     func(ctx context.Context, url string, auth git.Auth) ([]git.Ref, error)
 	applyPatchesFunc func(ctx context.Context, req git.ApplyPatchesRequest) (git.ApplyPatchesResult, error)
@@ -75,15 +69,9 @@ func (f *fakeGitClient) ApplyPatches(ctx context.Context, req git.ApplyPatchesRe
 	return f.applyPatchesFunc(ctx, req)
 }
 
-// newBranchResourceWithClient returns a git_branch resource.Resource with
-// its unexported client field set to client. The concrete type returned by
-// provider.NewGitBranchResource, and the providerData type normally used to
-// populate that field via Configure, are both unexported and therefore out
-// of reach from this external test package. Reflection is used here purely
-// to reach the private field on the struct we already legitimately obtained
-// through the exported constructor, so tests can exercise Create/Read/
-// Update/ImportState against a controlled fake client without needing
-// exported test-only seams in the implementation.
+// newBranchResourceWithClient returns a git_branch resource.Resource with its
+// unexported client field set to client, via reflection, since the concrete
+// type and its field are otherwise out of reach from this external test package.
 func newBranchResourceWithClient(client git.Client) resource.Resource {
 	r := provider.NewGitBranchResource()
 
@@ -107,9 +95,7 @@ func branchResourceSchema(r resource.Resource) rschema.Schema {
 }
 
 // buildBranchConfig builds a tfsdk.Config from model. tfsdk.Config has no
-// Set method (unlike Plan/State), so the raw value is built via a throwaway
-// State and reused, mirroring the pattern in
-// git_repository_data_source_test.go.
+// Set method (unlike Plan/State), so the raw value is built via a throwaway State.
 func buildBranchConfig(s rschema.Schema, model branchModel) tfsdk.Config {
 	built := tfsdk.State{Schema: s}
 	Expect(built.Set(context.Background(), &model).HasError()).To(BeFalse())
@@ -820,16 +806,11 @@ var _ = Describe("GitBranchResource", func() {
 	})
 })
 
-// testAccProtoV6ProviderFactories is already declared in
-// git_repository_data_source_test.go for this package; the acceptance test
-// below reuses it directly.
 func TestAccGitBranch_basic(t *testing.T) {
 	repoDir := newTestRepo(t)
 	repoURL := "file://" + repoDir
 
-	// newTestRepo doesn't pin init.defaultBranch, so the default branch name
-	// depends on the host's git configuration (commonly "main" or "master").
-	// Ask the repo itself rather than hardcoding a name.
+	// The default branch name depends on the host's git config, so ask the repo rather than hardcoding it.
 	out, err := exec.Command("git", "-C", repoDir, "branch", "--show-current").Output()
 	if err != nil {
 		t.Fatalf("determining default branch of test repo: %v", err)
@@ -862,14 +843,9 @@ func TestAccGitBranch_basic(t *testing.T) {
 	})
 }
 
-// TestAccGitBranch_patches exercises the patches attribute end to end: it
-// applies a single-file-add patch on top of the test repo's default branch
-// and expects resolved_ref to differ from base_sha (the patch produced a new
-// commit that was force-pushed to the branch).
-//
-// Both the exec and gogit backends implement ApplyPatches; this test pins
-// the exec backend explicitly to keep exec covered by an acceptance test in
-// addition to gogit's own unit tests in internal/git/gogit.
+// TestAccGitBranch_patches exercises the patches attribute end to end,
+// pinning the exec backend to keep it covered by an acceptance test
+// alongside gogit's own unit tests in internal/git/gogit.
 func TestAccGitBranch_patches(t *testing.T) {
 	repoDir := newTestRepo(t)
 	repoURL := "file://" + repoDir

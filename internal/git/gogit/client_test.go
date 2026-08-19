@@ -140,11 +140,8 @@ var _ = Describe("Client", func() {
 	})
 })
 
-// makeSequentialPatch clones origin to a scratch directory, changes path's
-// content to newContent, commits it, and returns the diff between the
-// clone's initial commit and this new commit as a raw patch string, along
-// with the scratch directory path so further sequential patches can be
-// built on top of it via makeFollowUpPatch.
+// makeSequentialPatch clones origin to a scratch directory, commits a change
+// to path, and returns the diff plus the scratch directory for makeFollowUpPatch.
 func makeSequentialPatch(origin, path, newContent string) (patch string, scratchDir string) {
 	scratchDir = GinkgoT().TempDir()
 	runGit("", "clone", origin, scratchDir)

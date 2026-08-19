@@ -71,11 +71,8 @@ func (c *client) ApplyPatches(ctx context.Context, req providergit.ApplyPatchesR
 		return providergit.ApplyPatchesResult{}, fmt.Errorf("getting worktree: %w", err)
 	}
 
-	// SetReference (not Checkout{Create: true}) mirrors `git checkout -B`:
-	// req.Branch may already exist locally, e.g. as the clone's checked-out
-	// default branch when applying a patch stack to the same branch it's
-	// based on. Checkout{Create: true} errors in that case; SetReference
-	// resets it unconditionally to req.BaseRef instead.
+	// SetReference (not Checkout{Create: true}) mirrors `git checkout -B`,
+	// resetting req.Branch to req.BaseRef even if it already exists locally.
 	branchRef := plumbing.NewBranchReferenceName(req.Branch)
 	baseHash := plumbing.NewHash(req.BaseRef)
 	if err := repo.Storer.SetReference(plumbing.NewHashReference(branchRef, baseHash)); err != nil {
@@ -127,8 +124,7 @@ func (c *client) ApplyPatches(ctx context.Context, req providergit.ApplyPatchesR
 }
 
 // applyFile applies a single parsed diff file to the worktree's filesystem
-// and stages the result, mirroring what `git apply --index` does for one
-// file in the patch.
+// and stages the result, like `git apply --index` for one file in the patch.
 func applyFile(wt *git.Worktree, file *gitdiff.File) error {
 	if file.IsBinary {
 		return fmt.Errorf("binary patches are not supported by the go-git backend: %s", file.NewName)
