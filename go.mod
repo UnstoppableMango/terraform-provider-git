@@ -1,6 +1,6 @@
 module github.com/UnstoppableMango/terraform-provider-git
 
-go 1.25.8
+go 1.26.5
 
 tool github.com/onsi/ginkgo/v2/ginkgo
 
