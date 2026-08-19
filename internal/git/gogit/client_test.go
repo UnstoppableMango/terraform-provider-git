@@ -137,6 +137,33 @@ var _ = Describe("Client", func() {
 			Expect(showRefExists(origin, "refs/heads/feature-fail")).To(BeFalse())
 			Expect(showRefs(origin)).To(Equal(refsBefore))
 		})
+
+		It("returns an error and leaves the remote unchanged when a delete patch's context doesn't match the current file", func() {
+			origin := newTestRepo()
+			baseSHA := revParse(origin, "HEAD")
+
+			badDeletePatch := "diff --git a/README.md b/README.md\n" +
+				"deleted file mode 100644\n" +
+				"index 0000000..1111111 100644\n" +
+				"--- a/README.md\n" +
+				"+++ /dev/null\n" +
+				"@@ -1,1 +0,0 @@\n" +
+				"-this content does not exist in the file\n"
+
+			refsBefore := showRefs(origin)
+
+			client := gogit.New()
+			_, err := client.ApplyPatches(context.Background(), providergit.ApplyPatchesRequest{
+				URL:     "file://" + origin,
+				Branch:  "feature-delete-fail",
+				BaseRef: baseSHA,
+				Patches: []string{badDeletePatch},
+			})
+
+			Expect(err).To(HaveOccurred())
+			Expect(showRefExists(origin, "refs/heads/feature-delete-fail")).To(BeFalse())
+			Expect(showRefs(origin)).To(Equal(refsBefore))
+		})
 	})
 })
 

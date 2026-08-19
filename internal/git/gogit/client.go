@@ -144,6 +144,9 @@ func applyFile(wt *git.Worktree, file *gitdiff.File) error {
 	}
 
 	if file.IsDelete {
+		if err := gitdiff.Apply(io.Discard, bytes.NewReader(src), file); err != nil {
+			return fmt.Errorf("applying changes to %s: %w", file.OldName, err)
+		}
 		if _, err := wt.Remove(file.OldName); err != nil {
 			return fmt.Errorf("removing %s: %w", file.OldName, err)
 		}
