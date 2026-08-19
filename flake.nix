@@ -1,5 +1,5 @@
 {
-  description = "A Nix flake";
+  description = "A terraform provider for git";
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
@@ -51,10 +51,6 @@
               gnumake
               nixfmt
             ];
-
-            GO = "${pkgs.go}/bin/go";
-            GOMOD2NIX = "${pkgs.gomod2nix}/bin/gomod2nix";
-            GINKGO = "${pkgs.ginkgo}/bin/ginkgo";
           };
 
           treefmt.programs = {
