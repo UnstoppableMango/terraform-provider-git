@@ -12,11 +12,8 @@ test-acc:
 update:
 	nix flake update
 
-check lint: lint-go
+check lint:
 	nix flake check
-
-lint-go:
-	golangci-lint run ./...
 
 format fmt:
 	nix fmt

@@ -70,6 +70,21 @@
             ".agents/skills/**"
             ".claude/skills/**"
           ];
+
+          # Defined directly (instead of via `programs.golangci-lint.enable`) so the
+          # command can run over the whole module instead of the individual changed
+          # files treefmt would otherwise pass (golangci-lint rejects files spanning
+          # more than one directory), and so `go` comes from a gomod2nix-provided,
+          # offline module cache — the treefmt sandbox has no network to hit the Go
+          # module proxy.
+          treefmt.settings.formatter.golangci-lint = {
+            command = pkgs.writeShellScriptBin "golangci-lint" ''
+              export PATH="${pkgs.mkGoEnv { pwd = ./.; modules = ./nix/gomod2nix.toml; }}/bin:$PATH"
+              exec ${pkgs.golangci-lint}/bin/golangci-lint run --fix ./...
+            '';
+            includes = [ "*.go" ];
+            excludes = [ "vendor/*" ];
+          };
         };
     };
 }
