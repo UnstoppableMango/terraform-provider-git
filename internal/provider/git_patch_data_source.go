@@ -17,6 +17,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	"github.com/UnstoppableMango/terraform-provider-git/internal/git/github"
+	"github.com/UnstoppableMango/terraform-provider-git/internal/git/gitlab"
 )
 
 // Ensure the implementation satisfies the desired interfaces.
@@ -26,10 +27,11 @@ var _ datasource.DataSourceWithConfigValidators = &gitPatchDataSource{}
 
 // gitPatchDataSource resolves the identity and content of a single patch: a
 // local file, inline diff content, or a remote host source (e.g. a GitHub
-// PR/commit). It does not clone, apply, commit, or push; that is
-// git_branch's responsibility once it exists.
+// PR/commit or a GitLab MR/commit). It does not clone, apply, commit, or
+// push; that is git_branch's responsibility once it exists.
 type gitPatchDataSource struct {
 	github       github.Client
+	gitlab       gitlab.Client
 	defaultToken string
 }
 
@@ -40,6 +42,7 @@ type gitPatchResourceModel struct {
 	File    types.String            `tfsdk:"file"`
 	Diff    types.String            `tfsdk:"diff"`
 	Github  *gitPatchGithubModel    `tfsdk:"github"`
+	Gitlab  *gitPatchGitlabModel    `tfsdk:"gitlab"`
 	Auth    *gitRepositoryAuthModel `tfsdk:"auth"`
 }
 
@@ -49,6 +52,14 @@ type gitPatchGithubModel struct {
 	Pr         types.Int64  `tfsdk:"pr"`
 	Commit     types.String `tfsdk:"commit"`
 	Sha        types.String `tfsdk:"sha"`
+}
+
+// gitPatchGitlabModel describes the gitlab nested attribute data model.
+type gitPatchGitlabModel struct {
+	Project types.String `tfsdk:"project"`
+	Mr      types.Int64  `tfsdk:"mr"`
+	Commit  types.String `tfsdk:"commit"`
+	Sha     types.String `tfsdk:"sha"`
 }
 
 // NewGitPatchDataSource creates a new instance of the git_patch data source.
@@ -75,12 +86,13 @@ func (d *gitPatchDataSource) Configure(_ context.Context, req datasource.Configu
 	}
 
 	d.github = data.GithubClient
+	d.gitlab = data.GitlabClient
 	d.defaultToken = data.DefaultToken
 }
 
 func (d *gitPatchDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Resolves a single patch: a local file, inline diff content, or a remote host source (e.g. a GitHub PR/commit). Exactly one of `content`, `file`, or `github` must be set. Does not clone, apply, commit, or push; that is `git_branch`'s responsibility.",
+		MarkdownDescription: "Resolves a single patch: a local file, inline diff content, or a remote host source (e.g. a GitHub PR/commit or a GitLab MR/commit). Exactly one of `content`, `file`, `github`, or `gitlab` must be set. Does not clone, apply, commit, or push; that is `git_branch`'s responsibility.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:            true,
@@ -126,14 +138,42 @@ func (d *gitPatchDataSource) Schema(_ context.Context, _ datasource.SchemaReques
 					},
 				},
 			},
+			"gitlab": schema.SingleNestedAttribute{
+				Optional:            true,
+				MarkdownDescription: "Resolves the patch from a GitLab merge request or commit. Exactly one of `mr` or `commit` must be set.",
+				Attributes: map[string]schema.Attribute{
+					"project": schema.StringAttribute{
+						Required:            true,
+						MarkdownDescription: "Project the merge request or commit belongs to, as a GitLab project path (e.g. `group/project`) or numeric ID.",
+					},
+					"mr": schema.Int64Attribute{
+						Optional:            true,
+						MarkdownDescription: "Merge request IID to resolve the patch from.",
+						Validators: []validator.Int64{
+							int64validator.ExactlyOneOf(
+								path.MatchRelative().AtParent().AtName("mr"),
+								path.MatchRelative().AtParent().AtName("commit"),
+							),
+						},
+					},
+					"commit": schema.StringAttribute{
+						Optional:            true,
+						MarkdownDescription: "Commit sha to resolve the patch from.",
+					},
+					"sha": schema.StringAttribute{
+						Computed:            true,
+						MarkdownDescription: "Resolved commit sha (the merge request's head commit, or `commit` itself).",
+					},
+				},
+			},
 			"auth": schema.SingleNestedAttribute{
 				Optional:            true,
-				MarkdownDescription: "Authentication details used to call the GitHub API when `github` is set.",
+				MarkdownDescription: "Authentication details used to call the GitHub or GitLab API when `github` or `gitlab` is set.",
 				Attributes: map[string]schema.Attribute{
 					"token": schema.StringAttribute{
 						Optional:            true,
 						Sensitive:           true,
-						MarkdownDescription: "Token used to authenticate with the GitHub API.",
+						MarkdownDescription: "Token used to authenticate with the GitHub or GitLab API.",
 					},
 				},
 			},
@@ -141,14 +181,15 @@ func (d *gitPatchDataSource) Schema(_ context.Context, _ datasource.SchemaReques
 	}
 }
 
-// ConfigValidators enforces that exactly one of content, file, or github is
-// set on the data source config.
+// ConfigValidators enforces that exactly one of content, file, github, or
+// gitlab is set on the data source config.
 func (d *gitPatchDataSource) ConfigValidators(_ context.Context) []datasource.ConfigValidator {
 	return []datasource.ConfigValidator{
 		datasourcevalidator.ExactlyOneOf(
 			path.MatchRoot("content"),
 			path.MatchRoot("file"),
 			path.MatchRoot("github"),
+			path.MatchRoot("gitlab"),
 		),
 	}
 }
@@ -159,6 +200,9 @@ func (d *gitPatchDataSource) ConfigValidators(_ context.Context) []datasource.Co
 // the github attribute's own content, which should instead be reported as
 // an attribute-scoped diagnostic.
 var errGithubNotConfigured = errors.New("github client not configured")
+
+// errGitlabNotConfigured mirrors errGithubNotConfigured for the gitlab source.
+var errGitlabNotConfigured = errors.New("gitlab client not configured")
 
 // resolve derives diff (and, when github is set, github.sha) from whichever
 // of content, file, or github is set on model, and computes id as the hex
@@ -195,8 +239,28 @@ func (d *gitPatchDataSource) resolve(ctx context.Context, model *gitPatchResourc
 
 		diff = resolution.Diff
 		model.Github.Sha = types.StringValue(resolution.SHA)
+	case model.Gitlab != nil:
+		if d.gitlab == nil {
+			return errGitlabNotConfigured
+		}
+
+		token := tokenFromModel(model.Auth, d.defaultToken)
+
+		var resolution gitlab.Resolution
+		var err error
+		if !model.Gitlab.Mr.IsNull() && !model.Gitlab.Mr.IsUnknown() {
+			resolution, err = d.gitlab.ResolveMR(ctx, model.Gitlab.Project.ValueString(), model.Gitlab.Mr.ValueInt64(), token)
+		} else {
+			resolution, err = d.gitlab.ResolveCommit(ctx, model.Gitlab.Project.ValueString(), model.Gitlab.Commit.ValueString(), token)
+		}
+		if err != nil {
+			return fmt.Errorf("resolving gitlab source: %w", err)
+		}
+
+		diff = resolution.Diff
+		model.Gitlab.Sha = types.StringValue(resolution.SHA)
 	default:
-		return fmt.Errorf("exactly one of content, file, or github must be set")
+		return fmt.Errorf("exactly one of content, file, github, or gitlab must be set")
 	}
 
 	sum := sha256.Sum256([]byte(diff))
@@ -220,6 +284,8 @@ func (d *gitPatchDataSource) Read(ctx context.Context, req datasource.ReadReques
 			resp.Diagnostics.AddAttributeError(path.Root("file"), "Unable to Resolve Patch", err.Error())
 		case model.Github != nil && !errors.Is(err, errGithubNotConfigured):
 			resp.Diagnostics.AddAttributeError(path.Root("github"), "Unable to Resolve Patch", err.Error())
+		case model.Gitlab != nil && !errors.Is(err, errGitlabNotConfigured):
+			resp.Diagnostics.AddAttributeError(path.Root("gitlab"), "Unable to Resolve Patch", err.Error())
 		default:
 			resp.Diagnostics.AddError("Unable to Resolve Patch", err.Error())
 		}

@@ -19,9 +19,9 @@ Early and incomplete. Implemented so far:
 
 - `git_repository` (data source) — resolves and verifies an existing repository via `ls-remote`.
 - `git_branch` (resource) — tracks a branch against a `base_ref`, applies an ordered `patches` stack on top of it, and force-pushes the result.
-- `git_patch` (data source) — resolves a unified diff and content-addressed ID from inline content, a local file, or a GitHub PR/commit.
+- `git_patch` (data source) — resolves a unified diff and content-addressed ID from inline content, a local file, a GitHub PR/commit, or a GitLab MR/commit.
 
-Not yet implemented: the GitLab hosting-API backend and generated Registry docs.
+Not yet implemented: generated Registry docs.
 See [AGENTS.md](AGENTS.md#current-state-vs-design) for the up-to-date breakdown and [docs/DESIGN.md](docs/DESIGN.md) for the full resource model.
 
 ## Usage

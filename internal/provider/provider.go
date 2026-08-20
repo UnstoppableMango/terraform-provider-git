@@ -14,6 +14,7 @@ import (
 	"github.com/UnstoppableMango/terraform-provider-git/internal/git"
 	"github.com/UnstoppableMango/terraform-provider-git/internal/git/execgit"
 	"github.com/UnstoppableMango/terraform-provider-git/internal/git/github"
+	"github.com/UnstoppableMango/terraform-provider-git/internal/git/gitlab"
 	"github.com/UnstoppableMango/terraform-provider-git/internal/git/gogit"
 )
 
@@ -21,6 +22,7 @@ import (
 type providerData struct {
 	GitClient    git.Client
 	GithubClient github.Client
+	GitlabClient gitlab.Client
 
 	// DefaultToken is the provider-level auth.token, used by resources and
 	// data sources as a fallback when their own auth.token is unset.
@@ -94,6 +96,7 @@ func (p *gitProvider) Configure(ctx context.Context, req provider.ConfigureReque
 	data := &providerData{
 		GitClient:    client,
 		GithubClient: github.New(),
+		GitlabClient: gitlab.New(),
 		DefaultToken: tokenFromModel(config.Auth, ""),
 	}
 	resp.DataSourceData = data

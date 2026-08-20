@@ -76,8 +76,17 @@ A `git_patch` sourced from a host uses a host-specific nested block rather than 
 
 ```hcl
 data "git_patch" "example" {
-  github {
-    pr = 123
+  github = {
+    repository = "owner/name"
+    pr         = 123
+    # or: commit = "abc123"
+  }
+}
+
+data "git_patch" "example_gitlab" {
+  gitlab = {
+    project = "group/project"
+    mr      = 123
     # or: commit = "abc123"
   }
 }
