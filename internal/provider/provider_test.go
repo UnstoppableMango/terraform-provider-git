@@ -59,6 +59,37 @@ var _ = Describe("GitProvider", func() {
 				Expect(strAttr.Validators).NotTo(BeEmpty(), "expected git_implementation to have at least one validator (e.g. stringvalidator.OneOf)")
 			})
 		})
+
+		It("defines an auth attribute", func() {
+			Expect(schemaResp.Schema.Attributes).To(HaveKey("auth"))
+		})
+
+		Describe("auth attribute", func() {
+			It("is optional and defined as a single nested object", func() {
+				a := schemaResp.Schema.Attributes["auth"]
+				Expect(a.IsRequired()).To(BeFalse())
+				Expect(a.IsOptional()).To(BeTrue())
+
+				_, ok := a.(pschema.NestedAttribute)
+				Expect(ok).To(BeTrue(), "expected auth to be a nested attribute type")
+
+				_, ok = a.(pschema.SingleNestedAttribute)
+				Expect(ok).To(BeTrue(), "expected auth to be a schema.SingleNestedAttribute")
+			})
+
+			It("has an optional, sensitive token child attribute", func() {
+				a := schemaResp.Schema.Attributes["auth"]
+
+				nested, ok := a.(pschema.NestedAttribute)
+				Expect(ok).To(BeTrue(), "expected auth to be a nested attribute type")
+
+				tokenAttr, ok := nested.GetNestedObject().GetAttributes()["token"]
+				Expect(ok).To(BeTrue(), "expected auth to define a nested token attribute")
+				Expect(tokenAttr.IsRequired()).To(BeFalse())
+				Expect(tokenAttr.IsOptional()).To(BeTrue())
+				Expect(tokenAttr.IsSensitive()).To(BeTrue())
+			})
+		})
 	})
 })
 

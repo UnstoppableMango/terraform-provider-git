@@ -130,6 +130,78 @@ var _ = Describe("gitPatchDataSource github source", func() {
 		})
 	})
 
+	Context("with no per-resource auth but a provider default token", func() {
+		It("passes the provider default token through to ResolveCommit", func() {
+			const (
+				repository   = "acme/widgets"
+				commitSHA    = "deadbeef"
+				resolvedDiff = "diff --git a/commit b/commit\n+from-commit\n"
+			)
+
+			fake := &internalFakeGitHubClient{
+				resolveCommitFunc: func(ctx context.Context, repository string, sha string, token string) (github.Resolution, error) {
+					return github.Resolution{SHA: sha, Diff: resolvedDiff}, nil
+				},
+			}
+			ds := &gitPatchDataSource{github: fake, defaultToken: "provider-tok"}
+
+			model := gitPatchResourceModel{
+				Id:      types.StringUnknown(),
+				Content: types.StringNull(),
+				File:    types.StringNull(),
+				Diff:    types.StringUnknown(),
+				Github: &gitPatchGithubModel{
+					Repository: types.StringValue(repository),
+					Pr:         types.Int64Null(),
+					Commit:     types.StringValue(commitSHA),
+					Sha:        types.StringUnknown(),
+				},
+				Auth: nil,
+			}
+			req, resp := newReadRequest(model)
+
+			ds.Read(context.Background(), req, resp)
+
+			Expect(resp.Diagnostics.HasError()).To(BeFalse(), fmt.Sprintf("%v", resp.Diagnostics))
+			Expect(fake.gotToken).To(Equal("provider-tok"))
+		})
+
+		It("prefers the per-resource token over the provider default", func() {
+			const (
+				repository   = "acme/widgets"
+				commitSHA    = "deadbeef"
+				resolvedDiff = "diff --git a/commit b/commit\n+from-commit\n"
+			)
+
+			fake := &internalFakeGitHubClient{
+				resolveCommitFunc: func(ctx context.Context, repository string, sha string, token string) (github.Resolution, error) {
+					return github.Resolution{SHA: sha, Diff: resolvedDiff}, nil
+				},
+			}
+			ds := &gitPatchDataSource{github: fake, defaultToken: "provider-tok"}
+
+			model := gitPatchResourceModel{
+				Id:      types.StringUnknown(),
+				Content: types.StringNull(),
+				File:    types.StringNull(),
+				Diff:    types.StringUnknown(),
+				Github: &gitPatchGithubModel{
+					Repository: types.StringValue(repository),
+					Pr:         types.Int64Null(),
+					Commit:     types.StringValue(commitSHA),
+					Sha:        types.StringUnknown(),
+				},
+				Auth: &gitRepositoryAuthModel{Token: types.StringValue("resource-tok")},
+			}
+			req, resp := newReadRequest(model)
+
+			ds.Read(context.Background(), req, resp)
+
+			Expect(resp.Diagnostics.HasError()).To(BeFalse(), fmt.Sprintf("%v", resp.Diagnostics))
+			Expect(fake.gotToken).To(Equal("resource-tok"))
+		})
+	})
+
 	Context("with github.commit set", func() {
 		It("resolves diff, id, and github.sha from ResolveCommit, passing through repository/commit/auth", func() {
 			const (
