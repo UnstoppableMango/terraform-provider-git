@@ -31,7 +31,7 @@
       perSystem =
         { pkgs, system, ... }:
         let
-          version = "0.0.1";
+          version = pkgs.lib.strings.trim (builtins.readFile ./VERSION);
         in
         {
           _module.args.pkgs = import inputs.nixpkgs {
