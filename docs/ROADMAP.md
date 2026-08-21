@@ -63,6 +63,15 @@ Closed the top item from this roadmap's first "Now / Next" list. `auth` gained a
 - `git_patch` deliberately did not get an `ssh` block: its `auth` only authenticates GitHub/GitLab REST API calls, which have no SSH equivalent. It got its own smaller `gitPatchAuthModel` (token-only) to keep that boundary explicit at the type level, separate from the shared `gitRepositoryAuthModel` used everywhere else.
 - Host key verification deliberately has no new schema surface: leaving go-git's `HostKeyCallback` unset already builds a `known_hosts`-based callback automatically (verified in go-git's vendored source), erroring clearly if none exists rather than silently bypassing verification.
 
+### Phase 8: `tfplugindocs` wiring (2026-08-21)
+
+Closed this roadmap's former "Now / Next" item 3.
+
+- Added `tfplugindocs` (from nixpkgs, not a `go.mod` tool — unlike Ginkgo, it's never imported as a Go library, so there's no CLI/library version to keep in sync) to the dev shell, a `make docs` target, and a CI step that fails if `docs/` is stale (`tfplugindocs generate && git diff --exit-code -- docs/`).
+- `docs/index.md`, `docs/resources/branch.md`, `docs/data-sources/{repository,patch}.md` are now generated from schema `MarkdownDescription`s and `examples/`; added `examples/resources/git_branch/import.sh` so `git_branch`'s import instructions render.
+- `provider.go`'s top-level schema gained a `MarkdownDescription` (previously only its attributes had one), so `docs/index.md` isn't blank.
+- `treefmt`'s `mdformat` corrupts tfplugindocs' YAML frontmatter (turns the `---` delimiters into a horizontal rule), so `docs/index.md`, `docs/resources/**`, and `docs/data-sources/**` are excluded from it in `flake.nix`, same as the existing skills excludes.
+
 ## Now / Next
 
 Everything below is open relative to GOALS.md/DESIGN.md as of this branch.
@@ -80,18 +89,13 @@ There's no hosting-API path for push (e.g. building commits/refs via GitHub's Gi
 Already called out in AGENTS.md as a known, documented asymmetry: `internal/git/gitlab/client.go`'s `renderUnifiedDiff` handles added/modified/deleted text files correctly, gives renames best-effort headers, and doesn't specially handle binary files (GitLab's API typically leaves their `diff` field empty).
 Worth closing before GitLab is presented as an equal peer to GitHub rather than a "mostly works" backend.
 
-### 3. Registry documentation
-
-No `tfplugindocs` wiring, despite `examples/` already existing for the provider, `git_branch`, and both data sources.
-Given the project is meant to be a publishable Terraform provider, generated Registry docs are close to a requirement rather than polish.
-
-### 4. Host extensibility beyond GitHub/GitLab
+### 3. Host extensibility beyond GitHub/GitLab
 
 GOALS.md phrases the initial hosts as examples ("auth for hosted providers such as GitHub and GitLab"), implying more may follow.
 Right now each host is a hand-written package mirroring the previous one (`internal/git/github`, `internal/git/gitlab`); there's no shared scaffolding that would make adding e.g. Bitbucket or a self-hosted Gitea cheap.
 Lower priority than the items above since nothing in GOALS.md commits to a specific third host.
 
-### 4a. Branch tip changed upstream to something unrelated to the patch stack
+### 3a. Branch tip changed upstream to something unrelated to the patch stack
 
 DESIGN.md's edge-case list still poses this as an open question ("needs verifying against the actual backend behavior").
 Given `on_conflict` now exists (`fail` compare-and-swaps against the last-observed tip; `force` unconditionally overwrites), this is very likely already covered as a side effect of Phase 5's work, but there's no test explicitly naming this scenario ("branch tip drifted to unrelated content, not just a stale patch stack").

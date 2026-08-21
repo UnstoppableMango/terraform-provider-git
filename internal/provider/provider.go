@@ -54,6 +54,7 @@ func (p *gitProvider) Metadata(_ context.Context, _ provider.MetadataRequest, re
 
 func (p *gitProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		MarkdownDescription: "Declares and reconciles the state of a git repository: tracked branches and a quilt-style ordered patch stack applied on top of them.",
 		Attributes: map[string]schema.Attribute{
 			"git_implementation": schema.StringAttribute{
 				Optional:            true,

@@ -51,6 +51,7 @@
               nixfmt
               golangci-lint
               opentofu
+              terraform-plugin-docs
             ];
 
             TF_ACC_TERRAFORM_PATH = "${pkgs.opentofu}/bin/tofu";
@@ -69,6 +70,9 @@
           treefmt.settings.formatter.mdformat.excludes = [
             ".agents/skills/**"
             ".claude/skills/**"
+            "docs/index.md"
+            "docs/resources/**"
+            "docs/data-sources/**"
           ];
         };
     };

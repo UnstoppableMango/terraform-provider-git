@@ -18,6 +18,7 @@ Dev shell is Nix-managed (`flake.nix`, direnv auto-loads it via `.envrc`). Every
 - Lint/check: `make check` or `make lint` (wraps `nix flake check`)
 - Format: `make fmt` or `make format` (wraps `nix fmt`, runs treefmt: gofmt, nixfmt, actionlint)
 - Regenerate `go.sum` and `nix/gomod2nix.toml` after touching `go.mod`: `make tidy`
+- Regenerate Registry docs after touching schema `MarkdownDescription`s or `examples/`: `make docs` (wraps `tfplugindocs generate`, a nixpkgs devShell package, not a `go.mod` tool — it's never imported as a Go library, unlike Ginkgo)
 
 ## Architecture
 
@@ -38,4 +39,4 @@ Provider-level auth inheritance is implemented: `provider.go`'s `auth.token` att
 
 The GitLab hosting-API backend (`internal/git/gitlab`) is implemented, mirroring `internal/git/github`'s shape (a small `Client` interface plus a real implementation wrapping `gitlab.com/gitlab-org/api/client-go`). One notable asymmetry: GitLab's REST API has no single endpoint that returns a ready-to-use unified diff the way GitHub's raw-diff endpoint does — merge request/commit diffs come back as a paginated array of per-file objects whose `diff` field holds only the `@@ ...@@` hunk body, so `internal/git/gitlab/client.go` reconstructs the `diff --git`/`---`/`+++` header lines itself (`renderUnifiedDiff`). This targets the common case (added/modified/deleted text files) correctly; renamed files get best-effort `rename from`/`rename to` headers, and binary files (whose `diff` field GitLab typically leaves empty) are not specially handled — a real, documented behavioral gap versus the `github` backend, not an oversight.
 
-Absent: generated Registry documentation (no `tfplugindocs` wiring). When implementing it, follow the terminology and semantics already fixed in DESIGN.md (base ref, resolved ref, patch stack, force-push-on-apply, ephemeral per-run workdirs) rather than inventing new ones.
+Registry documentation is generated via `tfplugindocs` (from nixpkgs, in the dev shell), run with `make docs`; `.github/workflows/ci.yml` fails if `docs/` is stale relative to schema/`examples/`. Output lives in `docs/index.md`, `docs/resources/*.md`, `docs/data-sources/*.md`, alongside the hand-written `docs/DESIGN.md`/`docs/ROADMAP.md` (excluded from treefmt's `mdformat`, which otherwise corrupts tfplugindocs' YAML frontmatter). Content comes entirely from schema `MarkdownDescription`s and `examples/`; when adding a new resource/data source or attribute, follow the terminology and semantics already fixed in DESIGN.md (base ref, resolved ref, patch stack, force-push-on-apply, ephemeral per-run workdirs) rather than inventing new ones, since that prose flows straight into the generated docs.

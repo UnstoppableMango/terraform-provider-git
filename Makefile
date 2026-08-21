@@ -9,6 +9,10 @@ test:
 test-acc:
 	TF_ACC=1 go test ./...
 
+.PHONY: docs
+docs:
+	tfplugindocs generate --tf-version 1.15.9
+
 update:
 	nix flake update
 
