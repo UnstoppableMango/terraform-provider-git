@@ -32,6 +32,7 @@ var _ resource.ResourceWithImportState = &gitBranchResource{}
 type gitBranchResource struct {
 	client       git.Client
 	defaultToken string
+	defaultSSH   *gitRepositorySSHAuthModel
 }
 
 // gitBranchRepositoryModel describes the repository nested attribute data
@@ -80,6 +81,7 @@ func (r *gitBranchResource) Configure(_ context.Context, req resource.ConfigureR
 
 	r.client = data.GitClient
 	r.defaultToken = data.DefaultToken
+	r.defaultSSH = data.DefaultSSH
 }
 
 // refKind identifies which of a branch's two remote refs a refNotFoundError
@@ -181,6 +183,33 @@ func (r *gitBranchResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 								Sensitive:           true,
 								MarkdownDescription: "Token used to authenticate with the repository host.",
 							},
+							"ssh": schema.SingleNestedAttribute{
+								Optional:            true,
+								MarkdownDescription: "SSH authentication details, for repository URLs using the ssh:// or git@host: scheme. Leave `private_key`/`private_key_path` unset to authenticate via a locally running SSH agent instead.",
+								Attributes: map[string]schema.Attribute{
+									"user": schema.StringAttribute{
+										Optional:            true,
+										MarkdownDescription: "SSH username. Defaults to `git`, the convention used by GitHub, GitLab, and most hosts.",
+									},
+									"private_key": schema.StringAttribute{
+										Optional:            true,
+										Sensitive:           true,
+										MarkdownDescription: "PEM-encoded SSH private key content. Conflicts with `private_key_path`.",
+										Validators: []validator.String{
+											stringvalidator.ConflictsWith(path.MatchRelative().AtParent().AtName("private_key_path")),
+										},
+									},
+									"private_key_path": schema.StringAttribute{
+										Optional:            true,
+										MarkdownDescription: "Path to a PEM-encoded SSH private key file on disk. Conflicts with `private_key`.",
+									},
+									"passphrase": schema.StringAttribute{
+										Optional:            true,
+										Sensitive:           true,
+										MarkdownDescription: "Passphrase for an encrypted private key. Only honored by the go-git implementation; the exec implementation errors if set, since it cannot supply it non-interactively.",
+									},
+								},
+							},
 						},
 					},
 				},
@@ -247,7 +276,7 @@ func (r *gitBranchResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 // ApplyPatches as a compare-and-swap guard. Pass "" when there is no prior
 // observation (Create) or on_conflict is "force".
 func (r *gitBranchResource) resolveModel(ctx context.Context, model *gitBranchResourceModel, apply bool, expectedTip string) error {
-	auth := authFromModel(model.Repository.Host, model.Repository.Auth, r.defaultToken)
+	auth := authFromModel(model.Repository.Host, model.Repository.Auth, r.defaultToken, r.defaultSSH)
 	url := model.Repository.Url.ValueString()
 
 	hash, err := resolveBranchRef(ctx, r.client, url, auth, model.BaseRef.ValueString(), refKindBase)
@@ -312,7 +341,7 @@ func (r *gitBranchResource) checkBaseRefAncestry(ctx context.Context, oldBaseSha
 		return
 	}
 
-	auth := authFromModel(model.Repository.Host, model.Repository.Auth, r.defaultToken)
+	auth := authFromModel(model.Repository.Host, model.Repository.Auth, r.defaultToken, r.defaultSSH)
 	url := model.Repository.Url.ValueString()
 
 	isAncestor, err := r.client.IsAncestor(ctx, url, auth, oldBaseSha, newBaseSha)
@@ -500,7 +529,7 @@ func (r *gitBranchResource) ImportState(ctx context.Context, req resource.Import
 	url := req.ID[:idx]
 	name := req.ID[idx+1:]
 
-	hash, err := resolveBranchRef(ctx, r.client, url, git.Auth{Token: r.defaultToken}, name, refKindBranchTip)
+	hash, err := resolveBranchRef(ctx, r.client, url, authFromModel(types.StringNull(), nil, r.defaultToken, r.defaultSSH), name, refKindBranchTip)
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to Resolve Base Ref", err.Error())
 		return

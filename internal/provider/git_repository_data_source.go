@@ -25,6 +25,7 @@ var _ datasource.DataSourceWithConfigure = &gitRepositoryDataSource{}
 type gitRepositoryDataSource struct {
 	client       git.Client
 	defaultToken string
+	defaultSSH   *gitRepositorySSHAuthModel
 }
 
 // gitRepositoryDataSourceModel describes the data source's data model.
@@ -37,7 +38,18 @@ type gitRepositoryDataSourceModel struct {
 
 // gitRepositoryAuthModel describes the auth nested attribute data model.
 type gitRepositoryAuthModel struct {
-	Token types.String `tfsdk:"token"`
+	Token types.String               `tfsdk:"token"`
+	SSH   *gitRepositorySSHAuthModel `tfsdk:"ssh"`
+}
+
+// gitRepositorySSHAuthModel describes the auth.ssh nested attribute data
+// model. An SSH block with neither PrivateKey nor PrivateKeyPath set means
+// "authenticate via a locally running SSH agent".
+type gitRepositorySSHAuthModel struct {
+	User           types.String `tfsdk:"user"`
+	PrivateKey     types.String `tfsdk:"private_key"`
+	PrivateKeyPath types.String `tfsdk:"private_key_path"`
+	Passphrase     types.String `tfsdk:"passphrase"`
 }
 
 // NewGitRepositoryDataSource creates a new instance of the git_repository
@@ -66,6 +78,7 @@ func (d *gitRepositoryDataSource) Configure(_ context.Context, req datasource.Co
 
 	d.client = data.GitClient
 	d.defaultToken = data.DefaultToken
+	d.defaultSSH = data.DefaultSSH
 }
 
 // tokenFromModel extracts the auth token from m, falling back to
@@ -81,9 +94,27 @@ func tokenFromModel(m *gitRepositoryAuthModel, defaultToken string) string {
 
 // authFromModel converts a gitRepositoryAuthModel into a git.Auth, falling
 // back to defaultToken (the provider-level auth.token, if any) when m has no
-// token of its own.
-func authFromModel(host types.String, m *gitRepositoryAuthModel, defaultToken string) git.Auth {
-	return git.Auth{Token: tokenFromModel(m, defaultToken), Host: host.ValueString()}
+// token of its own, and to defaultSSH (the provider-level auth.ssh, if any)
+// when m has no ssh block of its own. Unlike token (which falls back
+// field-by-field), ssh falls back as a whole block: an own ssh block, if set,
+// wins over the provider default entirely, since merging individual fields
+// between the two has no sane semantics.
+func authFromModel(host types.String, m *gitRepositoryAuthModel, defaultToken string, defaultSSH *gitRepositorySSHAuthModel) git.Auth {
+	auth := git.Auth{Token: tokenFromModel(m, defaultToken), Host: host.ValueString()}
+
+	ssh := defaultSSH
+	if m != nil && m.SSH != nil {
+		ssh = m.SSH
+	}
+	if ssh != nil {
+		auth.SSHUser = ssh.User.ValueString()
+		auth.SSHPrivateKey = ssh.PrivateKey.ValueString()
+		auth.SSHPrivateKeyPath = ssh.PrivateKeyPath.ValueString()
+		auth.SSHPassphrase = ssh.Passphrase.ValueString()
+		auth.SSHAgent = auth.SSHPrivateKey == "" && auth.SSHPrivateKeyPath == ""
+	}
+
+	return auth
 }
 
 // verifyReachable checks that url is reachable with auth via the configured
@@ -126,6 +157,33 @@ func (d *gitRepositoryDataSource) Schema(_ context.Context, _ datasource.SchemaR
 						Sensitive:           true,
 						MarkdownDescription: "Token used to authenticate with the repository host.",
 					},
+					"ssh": schema.SingleNestedAttribute{
+						Optional:            true,
+						MarkdownDescription: "SSH authentication details, for repository URLs using the ssh:// or git@host: scheme. Leave `private_key`/`private_key_path` unset to authenticate via a locally running SSH agent instead.",
+						Attributes: map[string]schema.Attribute{
+							"user": schema.StringAttribute{
+								Optional:            true,
+								MarkdownDescription: "SSH username. Defaults to `git`, the convention used by GitHub, GitLab, and most hosts.",
+							},
+							"private_key": schema.StringAttribute{
+								Optional:            true,
+								Sensitive:           true,
+								MarkdownDescription: "PEM-encoded SSH private key content. Conflicts with `private_key_path`.",
+								Validators: []validator.String{
+									stringvalidator.ConflictsWith(path.MatchRelative().AtParent().AtName("private_key_path")),
+								},
+							},
+							"private_key_path": schema.StringAttribute{
+								Optional:            true,
+								MarkdownDescription: "Path to a PEM-encoded SSH private key file on disk. Conflicts with `private_key`.",
+							},
+							"passphrase": schema.StringAttribute{
+								Optional:            true,
+								Sensitive:           true,
+								MarkdownDescription: "Passphrase for an encrypted private key. Only honored by the go-git implementation; the exec implementation errors if set, since it cannot supply it non-interactively.",
+							},
+						},
+					},
 				},
 			},
 		},
@@ -140,7 +198,7 @@ func (d *gitRepositoryDataSource) Read(ctx context.Context, req datasource.ReadR
 		return
 	}
 
-	if err := d.verifyReachable(ctx, config.Url.ValueString(), authFromModel(config.Host, config.Auth, d.defaultToken)); err != nil {
+	if err := d.verifyReachable(ctx, config.Url.ValueString(), authFromModel(config.Host, config.Auth, d.defaultToken, d.defaultSSH)); err != nil {
 		resp.Diagnostics.AddAttributeWarning(path.Root("url"), "Unable to Reach Repository", err.Error())
 	}
 

@@ -19,6 +19,9 @@ import (
 //go:embed askpass.sh
 var askpassScript []byte
 
+//go:embed ssh_wrapper.sh
+var sshWrapperScript []byte
+
 // client is a git.Client implementation backed by the git binary.
 type client struct{}
 
@@ -54,13 +57,47 @@ func (c *client) LsRemote(ctx context.Context, url string, auth providergit.Auth
 }
 
 // gitEnv builds the environment for git invocations against a remote,
-// wiring up a temporary GIT_ASKPASS script when a token is supplied.
-// Callers must call the returned cleanup func once done.
+// wiring up a temporary GIT_ASKPASS script for a token, or a temporary
+// GIT_SSH_COMMAND wrapper for SSH key-based auth. Callers must call the
+// returned cleanup func once done.
 func gitEnv(auth providergit.Auth) (env []string, cleanup func(), err error) {
 	env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	cleanup = func() {}
 
-	if auth.Token != "" {
+	switch {
+	case auth.SSHPrivateKey != "" || auth.SSHPrivateKeyPath != "":
+		// The exec backend shells out to the real ssh binary via
+		// GIT_SSH_COMMAND, which has no non-interactive way to supply a
+		// passphrase without an external SSH agent already holding the key.
+		// Fail clearly here rather than hanging on an interactive prompt
+		// (GIT_TERMINAL_PROMPT=0 above only suppresses git's own prompts,
+		// not ssh's host-key/passphrase prompts).
+		if auth.SSHPassphrase != "" {
+			return nil, nil, errors.New(`the exec git implementation cannot use a passphrase-protected SSH private key non-interactively; use git_implementation = "go-git", an unencrypted key, or an external SSH agent instead`)
+		}
+
+		keyPath := auth.SSHPrivateKeyPath
+		if auth.SSHPrivateKey != "" {
+			keyPath, err = writeTempKeyFile(auth.SSHPrivateKey)
+			if err != nil {
+				return nil, nil, err
+			}
+			cleanup = func() { _ = os.Remove(keyPath) }
+		}
+
+		wrapperPath, err := writeSSHWrapperScript()
+		if err != nil {
+			cleanup()
+			return nil, nil, err
+		}
+		prevCleanup := cleanup
+		cleanup = func() { prevCleanup(); _ = os.Remove(wrapperPath) }
+
+		env = append(env,
+			"GIT_SSH_COMMAND="+wrapperPath,
+			"GIT_PROVIDER_SSH_KEY="+keyPath,
+		)
+	case auth.Token != "":
 		scriptPath, err := writeAskpassScript()
 		if err != nil {
 			return nil, nil, err
@@ -277,6 +314,63 @@ func writeAskpassScript() (path string, err error) {
 		return "", err
 	}
 	if err := os.Chmod(path, 0o700); err != nil {
+		_ = os.Remove(path)
+		return "", err
+	}
+
+	return path, nil
+}
+
+// writeSSHWrapperScript writes the embedded SSH wrapper script (which reads
+// the key path to use from GIT_PROVIDER_SSH_KEY, avoiding any shell
+// interpolation of a user-supplied path) to a fresh temp file. Callers are
+// responsible for removing the file once the git invocation using it has
+// finished.
+func writeSSHWrapperScript() (path string, err error) {
+	f, err := os.CreateTemp("", "git-ssh-wrapper-*")
+	if err != nil {
+		return "", err
+	}
+	path = f.Name()
+
+	if _, err := f.Write(sshWrapperScript); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(path)
+		return "", err
+	}
+	if err := os.Chmod(path, 0o700); err != nil {
+		_ = os.Remove(path)
+		return "", err
+	}
+
+	return path, nil
+}
+
+// writeTempKeyFile writes pemContent to a fresh temp file with the
+// restrictive permissions ssh requires of a private key file. Callers are
+// responsible for removing the file once the git invocation using it has
+// finished.
+func writeTempKeyFile(pemContent string) (path string, err error) {
+	f, err := os.CreateTemp("", "git-ssh-key-*")
+	if err != nil {
+		return "", err
+	}
+	path = f.Name()
+
+	if _, err := f.WriteString(pemContent); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(path)
+		return "", err
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
 		_ = os.Remove(path)
 		return "", err
 	}

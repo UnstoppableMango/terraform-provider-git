@@ -44,13 +44,54 @@ var _ = Describe("tokenFromModel", func() {
 var _ = Describe("authFromModel", func() {
 	It("combines the model's own token with host", func() {
 		m := &gitRepositoryAuthModel{Token: types.StringValue("resource-tok")}
-		auth := authFromModel(types.StringValue("github"), m, "default-tok")
+		auth := authFromModel(types.StringValue("github"), m, "default-tok", nil)
 		Expect(auth).To(Equal(git.Auth{Token: "resource-tok", Host: "github"}))
 	})
 
 	It("falls back to defaultToken while still setting host", func() {
-		auth := authFromModel(types.StringValue("gitlab"), nil, "default-tok")
+		auth := authFromModel(types.StringValue("gitlab"), nil, "default-tok", nil)
 		Expect(auth).To(Equal(git.Auth{Token: "default-tok", Host: "gitlab"}))
+	})
+
+	It("uses the model's own ssh block over the provider default", func() {
+		m := &gitRepositoryAuthModel{SSH: &gitRepositorySSHAuthModel{
+			PrivateKeyPath: types.StringValue("/resource/key"),
+		}}
+		defaultSSH := &gitRepositorySSHAuthModel{PrivateKeyPath: types.StringValue("/default/key")}
+
+		auth := authFromModel(types.StringValue("github"), m, "", defaultSSH)
+		Expect(auth).To(Equal(git.Auth{Host: "github", SSHPrivateKeyPath: "/resource/key"}))
+	})
+
+	It("falls back to the provider default ssh block when the model has none", func() {
+		defaultSSH := &gitRepositorySSHAuthModel{PrivateKeyPath: types.StringValue("/default/key")}
+
+		auth := authFromModel(types.StringValue("github"), nil, "", defaultSSH)
+		Expect(auth).To(Equal(git.Auth{Host: "github", SSHPrivateKeyPath: "/default/key"}))
+	})
+
+	It("resolves an ssh block with a private key to SSHAgent: false", func() {
+		m := &gitRepositoryAuthModel{SSH: &gitRepositorySSHAuthModel{
+			PrivateKey: types.StringValue("pem-content"),
+		}}
+
+		auth := authFromModel(types.StringValue("github"), m, "", nil)
+		Expect(auth.SSHAgent).To(BeFalse())
+		Expect(auth.SSHPrivateKey).To(Equal("pem-content"))
+	})
+
+	It("resolves an empty ssh block (no key material) to SSHAgent: true", func() {
+		m := &gitRepositoryAuthModel{SSH: &gitRepositorySSHAuthModel{}}
+
+		auth := authFromModel(types.StringValue("github"), m, "", nil)
+		Expect(auth.SSHAgent).To(BeTrue())
+	})
+
+	It("leaves all ssh fields empty when neither the model nor the default has an ssh block", func() {
+		auth := authFromModel(types.StringValue("github"), nil, "", nil)
+		Expect(auth.SSHAgent).To(BeFalse())
+		Expect(auth.SSHPrivateKey).To(BeEmpty())
+		Expect(auth.SSHPrivateKeyPath).To(BeEmpty())
 	})
 })
 
@@ -93,6 +134,32 @@ var _ = Describe("gitProvider Configure", func() {
 		data, ok := resp.ResourceData.(*providerData)
 		Expect(ok).To(BeTrue(), "expected ResourceData to be *providerData")
 		Expect(data.DefaultToken).To(Equal(""))
+	})
+
+	It("stores the provider-level auth.ssh as providerData.DefaultSSH", func() {
+		resp := configure(gitProviderModel{
+			GitImplementation: types.StringNull(),
+			Auth: &gitRepositoryAuthModel{SSH: &gitRepositorySSHAuthModel{
+				PrivateKeyPath: types.StringValue("/provider/key"),
+			}},
+		})
+
+		Expect(resp.Diagnostics.HasError()).To(BeFalse())
+
+		data, ok := resp.ResourceData.(*providerData)
+		Expect(ok).To(BeTrue(), "expected ResourceData to be *providerData")
+		Expect(data.DefaultSSH).NotTo(BeNil())
+		Expect(data.DefaultSSH.PrivateKeyPath.ValueString()).To(Equal("/provider/key"))
+	})
+
+	It("leaves DefaultSSH nil when auth is unset", func() {
+		resp := configure(gitProviderModel{GitImplementation: types.StringNull(), Auth: nil})
+
+		Expect(resp.Diagnostics.HasError()).To(BeFalse())
+
+		data, ok := resp.ResourceData.(*providerData)
+		Expect(ok).To(BeTrue(), "expected ResourceData to be *providerData")
+		Expect(data.DefaultSSH).To(BeNil())
 	})
 })
 

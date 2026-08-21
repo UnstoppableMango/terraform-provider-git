@@ -12,6 +12,12 @@ import (
 type Auth struct {
 	Token string // empty means unauthenticated
 	Host  string // host type, e.g. "github" or "gitlab"; "" for unknown/generic
+
+	SSHUser           string // ssh username; empty defaults to "git" per-backend
+	SSHPrivateKey     string // PEM-encoded private key content
+	SSHPrivateKeyPath string // path to a private key file on disk
+	SSHPassphrase     string // passphrase for an encrypted private key
+	SSHAgent          bool   // use a locally running SSH agent instead of a key
 }
 
 // Username returns the conventional HTTP basic-auth username to pair with a

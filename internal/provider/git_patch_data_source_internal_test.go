@@ -135,7 +135,7 @@ var _ = Describe("gitPatchDataSource github source", func() {
 					Commit:     types.StringNull(),
 					Sha:        types.StringUnknown(),
 				},
-				Auth: &gitRepositoryAuthModel{
+				Auth: &gitPatchAuthModel{
 					Token: types.StringValue("tok-123"),
 				},
 			}
@@ -219,7 +219,7 @@ var _ = Describe("gitPatchDataSource github source", func() {
 					Commit:     types.StringValue(commitSHA),
 					Sha:        types.StringUnknown(),
 				},
-				Auth: &gitRepositoryAuthModel{Token: types.StringValue("resource-tok")},
+				Auth: &gitPatchAuthModel{Token: types.StringValue("resource-tok")},
 			}
 			req, resp := newReadRequest(model)
 
@@ -368,7 +368,7 @@ var _ = Describe("gitPatchDataSource gitlab source", func() {
 					Commit:  types.StringNull(),
 					Sha:     types.StringUnknown(),
 				},
-				Auth: &gitRepositoryAuthModel{
+				Auth: &gitPatchAuthModel{
 					Token: types.StringValue("tok-123"),
 				},
 			}
@@ -452,7 +452,7 @@ var _ = Describe("gitPatchDataSource gitlab source", func() {
 					Commit:  types.StringValue(commitSHA),
 					Sha:     types.StringUnknown(),
 				},
-				Auth: &gitRepositoryAuthModel{Token: types.StringValue("resource-tok")},
+				Auth: &gitPatchAuthModel{Token: types.StringValue("resource-tok")},
 			}
 			req, resp := newReadRequest(model)
 

@@ -5,6 +5,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -27,6 +28,10 @@ type providerData struct {
 	// DefaultToken is the provider-level auth.token, used by resources and
 	// data sources as a fallback when their own auth.token is unset.
 	DefaultToken string
+
+	// DefaultSSH is the provider-level auth.ssh, used by resources and data
+	// sources as a fallback when their own auth.ssh is unset.
+	DefaultSSH *gitRepositorySSHAuthModel
 }
 
 // gitProviderModel describes the provider-level configuration data model.
@@ -59,12 +64,39 @@ func (p *gitProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *
 			},
 			"auth": schema.SingleNestedAttribute{
 				Optional:            true,
-				MarkdownDescription: "Default authentication details used to connect to repositories and hosts, applied when a resource or data source does not set its own `auth.token`.",
+				MarkdownDescription: "Default authentication details used to connect to repositories and hosts, applied when a resource or data source does not set its own `auth.token`/`auth.ssh`.",
 				Attributes: map[string]schema.Attribute{
 					"token": schema.StringAttribute{
 						Optional:            true,
 						Sensitive:           true,
 						MarkdownDescription: "Default token used to authenticate with a repository host, unless overridden per-resource.",
+					},
+					"ssh": schema.SingleNestedAttribute{
+						Optional:            true,
+						MarkdownDescription: "Default SSH authentication details, unless overridden per-resource. Leave `private_key`/`private_key_path` unset to authenticate via a locally running SSH agent instead.",
+						Attributes: map[string]schema.Attribute{
+							"user": schema.StringAttribute{
+								Optional:            true,
+								MarkdownDescription: "SSH username. Defaults to `git`, the convention used by GitHub, GitLab, and most hosts.",
+							},
+							"private_key": schema.StringAttribute{
+								Optional:            true,
+								Sensitive:           true,
+								MarkdownDescription: "PEM-encoded SSH private key content. Conflicts with `private_key_path`.",
+								Validators: []validator.String{
+									stringvalidator.ConflictsWith(path.MatchRelative().AtParent().AtName("private_key_path")),
+								},
+							},
+							"private_key_path": schema.StringAttribute{
+								Optional:            true,
+								MarkdownDescription: "Path to a PEM-encoded SSH private key file on disk. Conflicts with `private_key`.",
+							},
+							"passphrase": schema.StringAttribute{
+								Optional:            true,
+								Sensitive:           true,
+								MarkdownDescription: "Passphrase for an encrypted private key. Only honored by the go-git implementation; the exec implementation errors if set, since it cannot supply it non-interactively.",
+							},
+						},
 					},
 				},
 			},
@@ -93,11 +125,17 @@ func (p *gitProvider) Configure(ctx context.Context, req provider.ConfigureReque
 		client = gogit.New()
 	}
 
+	var defaultSSH *gitRepositorySSHAuthModel
+	if config.Auth != nil {
+		defaultSSH = config.Auth.SSH
+	}
+
 	data := &providerData{
 		GitClient:    client,
 		GithubClient: github.New(),
 		GitlabClient: gitlab.New(),
 		DefaultToken: tokenFromModel(config.Auth, ""),
+		DefaultSSH:   defaultSSH,
 	}
 	resp.DataSourceData = data
 	resp.ResourceData = data

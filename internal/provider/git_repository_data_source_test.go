@@ -133,6 +133,30 @@ var _ = Describe("GitRepositoryDataSource", func() {
 				Expect(tokenAttr.IsOptional()).To(BeTrue())
 				Expect(tokenAttr.IsSensitive()).To(BeTrue())
 			})
+
+			It("has an optional ssh child attribute with sensitive private_key/passphrase", func() {
+				a := schemaResp.Schema.Attributes["auth"]
+
+				nested, ok := a.(dschema.NestedAttribute)
+				Expect(ok).To(BeTrue(), "expected auth to be a nested attribute type")
+
+				sshAttr, ok := nested.GetNestedObject().GetAttributes()["ssh"]
+				Expect(ok).To(BeTrue(), "expected auth to define a nested ssh attribute")
+				Expect(sshAttr.IsRequired()).To(BeFalse())
+				Expect(sshAttr.IsOptional()).To(BeTrue())
+
+				sshNested, ok := sshAttr.(dschema.NestedAttribute)
+				Expect(ok).To(BeTrue(), "expected ssh to be a nested attribute type")
+				sshChildren := sshNested.GetNestedObject().GetAttributes()
+
+				for _, name := range []string{"user", "private_key", "private_key_path", "passphrase"} {
+					_, ok := sshChildren[name]
+					Expect(ok).To(BeTrue(), "expected ssh to define a nested %s attribute", name)
+				}
+
+				Expect(sshChildren["private_key"].IsSensitive()).To(BeTrue())
+				Expect(sshChildren["passphrase"].IsSensitive()).To(BeTrue())
+			})
 		})
 	})
 

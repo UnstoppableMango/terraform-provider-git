@@ -258,6 +258,31 @@ var _ = Describe("GitBranchResource", func() {
 				Expect(tokenAttr.IsOptional()).To(BeTrue())
 				Expect(tokenAttr.IsSensitive()).To(BeTrue())
 			})
+
+			It("defines an optional ssh child attribute with sensitive private_key/passphrase", func() {
+				authAttr, ok := repoAttrs()["auth"]
+				Expect(ok).To(BeTrue(), "expected repository to define a nested auth attribute")
+
+				nested, ok := authAttr.(rschema.NestedAttribute)
+				Expect(ok).To(BeTrue(), "expected repository.auth to be a nested attribute type")
+
+				sshAttr, ok := nested.GetNestedObject().GetAttributes()["ssh"]
+				Expect(ok).To(BeTrue(), "expected repository.auth to define a nested ssh attribute")
+				Expect(sshAttr.IsRequired()).To(BeFalse())
+				Expect(sshAttr.IsOptional()).To(BeTrue())
+
+				sshNested, ok := sshAttr.(rschema.NestedAttribute)
+				Expect(ok).To(BeTrue(), "expected repository.auth.ssh to be a nested attribute type")
+				sshChildren := sshNested.GetNestedObject().GetAttributes()
+
+				for _, name := range []string{"user", "private_key", "private_key_path", "passphrase"} {
+					_, ok := sshChildren[name]
+					Expect(ok).To(BeTrue(), "expected repository.auth.ssh to define a nested %s attribute", name)
+				}
+
+				Expect(sshChildren["private_key"].IsSensitive()).To(BeTrue())
+				Expect(sshChildren["passphrase"].IsSensitive()).To(BeTrue())
+			})
 		})
 
 		Describe("name attribute", func() {

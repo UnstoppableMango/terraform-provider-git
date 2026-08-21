@@ -20,6 +20,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
+	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/go-git/go-git/v5/storage/memory"
 
 	providergit "github.com/UnstoppableMango/terraform-provider-git/internal/git"
@@ -34,13 +35,18 @@ func New() providergit.Client {
 }
 
 func (c *client) LsRemote(ctx context.Context, url string, auth providergit.Auth) ([]providergit.Ref, error) {
+	method, err := authMethod(auth)
+	if err != nil {
+		return nil, fmt.Errorf("preparing SSH auth: %w", err)
+	}
+
 	remote := git.NewRemote(memory.NewStorage(), &config.RemoteConfig{
 		Name: "origin",
 		URLs: []string{url},
 	})
 
 	refs, err := remote.ListContext(ctx, &git.ListOptions{
-		Auth:          authMethod(auth),
+		Auth:          method,
 		PeelingOption: git.AppendPeeled,
 	})
 	if err != nil {
@@ -59,9 +65,14 @@ func (c *client) LsRemote(ctx context.Context, url string, auth providergit.Auth
 }
 
 func (c *client) ApplyPatches(ctx context.Context, req providergit.ApplyPatchesRequest) (providergit.ApplyPatchesResult, error) {
+	method, err := authMethod(req.Auth)
+	if err != nil {
+		return providergit.ApplyPatchesResult{}, fmt.Errorf("preparing SSH auth: %w", err)
+	}
+
 	repo, err := git.CloneContext(ctx, memory.NewStorage(), memfs.New(), &git.CloneOptions{
 		URL:  req.URL,
-		Auth: authMethod(req.Auth),
+		Auth: method,
 	})
 	if err != nil {
 		return providergit.ApplyPatchesResult{}, fmt.Errorf("cloning %s: %w", req.URL, err)
@@ -114,7 +125,7 @@ func (c *client) ApplyPatches(ctx context.Context, req providergit.ApplyPatchesR
 	pushOpts := &git.PushOptions{
 		RemoteName: "origin",
 		RefSpecs:   []config.RefSpec{refspec},
-		Auth:       authMethod(req.Auth),
+		Auth:       method,
 	}
 	if req.ExpectedTip != "" {
 		pushOpts.ForceWithLease = &git.ForceWithLease{
@@ -152,6 +163,11 @@ func (c *client) IsAncestor(ctx context.Context, url string, auth providergit.Au
 		return true, nil
 	}
 
+	method, err := authMethod(auth)
+	if err != nil {
+		return false, fmt.Errorf("preparing SSH auth: %w", err)
+	}
+
 	storer := memory.NewStorage()
 	remote := git.NewRemote(storer, &config.RemoteConfig{
 		Name: "origin",
@@ -163,7 +179,7 @@ func (c *client) IsAncestor(ctx context.Context, url string, auth providergit.Au
 	// full fetch of every branch so ancestry can be checked against
 	// complete history.
 	shaErr := remote.FetchContext(ctx, &git.FetchOptions{
-		Auth: authMethod(auth),
+		Auth: method,
 		RefSpecs: []config.RefSpec{
 			config.RefSpec(ancestor + ":refs/ancestor"),
 			config.RefSpec(descendant + ":refs/descendant"),
@@ -171,7 +187,7 @@ func (c *client) IsAncestor(ctx context.Context, url string, auth providergit.Au
 	})
 	if shaErr != nil && !errors.Is(shaErr, git.NoErrAlreadyUpToDate) {
 		fullErr := remote.FetchContext(ctx, &git.FetchOptions{
-			Auth:     authMethod(auth),
+			Auth:     method,
 			RefSpecs: []config.RefSpec{"+refs/heads/*:refs/remotes/origin/*"},
 		})
 		if fullErr != nil && !errors.Is(fullErr, git.NoErrAlreadyUpToDate) {
@@ -262,13 +278,25 @@ func applyFile(wt *git.Worktree, file *gitdiff.File) error {
 	return nil
 }
 
-func authMethod(auth providergit.Auth) transport.AuthMethod {
-	if auth.Token == "" {
-		return nil
+func authMethod(auth providergit.Auth) (transport.AuthMethod, error) {
+	user := auth.SSHUser
+	if user == "" {
+		user = "git"
 	}
 
-	return &http.BasicAuth{
-		Username: providergit.Username(auth.Host),
-		Password: auth.Token,
+	switch {
+	case auth.SSHPrivateKey != "":
+		return ssh.NewPublicKeys(user, []byte(auth.SSHPrivateKey), auth.SSHPassphrase)
+	case auth.SSHPrivateKeyPath != "":
+		return ssh.NewPublicKeysFromFile(user, auth.SSHPrivateKeyPath, auth.SSHPassphrase)
+	case auth.SSHAgent:
+		return ssh.NewSSHAgentAuth(user)
+	case auth.Token != "":
+		return &http.BasicAuth{
+			Username: providergit.Username(auth.Host),
+			Password: auth.Token,
+		}, nil
+	default:
+		return nil, nil
 	}
 }

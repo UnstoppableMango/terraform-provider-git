@@ -37,13 +37,33 @@ type gitPatchDataSource struct {
 
 // gitPatchResourceModel describes the data source's data model.
 type gitPatchResourceModel struct {
-	Id      types.String            `tfsdk:"id"`
-	Content types.String            `tfsdk:"content"`
-	File    types.String            `tfsdk:"file"`
-	Diff    types.String            `tfsdk:"diff"`
-	Github  *gitPatchGithubModel    `tfsdk:"github"`
-	Gitlab  *gitPatchGitlabModel    `tfsdk:"gitlab"`
-	Auth    *gitRepositoryAuthModel `tfsdk:"auth"`
+	Id      types.String         `tfsdk:"id"`
+	Content types.String         `tfsdk:"content"`
+	File    types.String         `tfsdk:"file"`
+	Diff    types.String         `tfsdk:"diff"`
+	Github  *gitPatchGithubModel `tfsdk:"github"`
+	Gitlab  *gitPatchGitlabModel `tfsdk:"gitlab"`
+	Auth    *gitPatchAuthModel   `tfsdk:"auth"`
+}
+
+// gitPatchAuthModel describes the auth nested attribute data model. Unlike
+// gitRepositoryAuthModel (shared by git_repository, git_branch, and the
+// provider-level default), it has no ssh block: git_patch's auth only
+// authenticates GitHub/GitLab REST API calls, which have no SSH equivalent.
+type gitPatchAuthModel struct {
+	Token types.String `tfsdk:"token"`
+}
+
+// tokenFromPatchModel extracts the auth token from m, falling back to
+// defaultToken (the provider-level auth.token, if any) when m has no token
+// of its own. A nil m is treated the same as an unset token. Mirrors
+// tokenFromModel, but for gitPatchAuthModel.
+func tokenFromPatchModel(m *gitPatchAuthModel, defaultToken string) string {
+	if m == nil || m.Token.IsNull() || m.Token.IsUnknown() {
+		return defaultToken
+	}
+
+	return m.Token.ValueString()
 }
 
 // gitPatchGithubModel describes the github nested attribute data model.
@@ -224,7 +244,7 @@ func (d *gitPatchDataSource) resolve(ctx context.Context, model *gitPatchResourc
 			return errGithubNotConfigured
 		}
 
-		token := tokenFromModel(model.Auth, d.defaultToken)
+		token := tokenFromPatchModel(model.Auth, d.defaultToken)
 
 		var resolution github.Resolution
 		var err error
@@ -244,7 +264,7 @@ func (d *gitPatchDataSource) resolve(ctx context.Context, model *gitPatchResourc
 			return errGitlabNotConfigured
 		}
 
-		token := tokenFromModel(model.Auth, d.defaultToken)
+		token := tokenFromPatchModel(model.Auth, d.defaultToken)
 
 		var resolution gitlab.Resolution
 		var err error
