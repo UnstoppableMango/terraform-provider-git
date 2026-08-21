@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 	golab "gitlab.com/gitlab-org/api/client-go"
 )
 
@@ -51,6 +52,8 @@ func (c *client) ResolveMR(ctx context.Context, project string, mr int64, token 
 		return Resolution{}, err
 	}
 
+	tflog.Debug(ctx, "resolving merge request", map[string]any{"project": project, "mr": mr})
+
 	mrObj, _, err := gl.MergeRequests.GetMergeRequest(project, mr, nil, golab.WithContext(ctx))
 	if err != nil {
 		return Resolution{}, fmt.Errorf("resolving merge request: %w", err)
@@ -60,6 +63,8 @@ func (c *client) ResolveMR(ctx context.Context, project string, mr int64, token 
 	if sha == "" {
 		return Resolution{}, fmt.Errorf("merge request response missing head commit sha")
 	}
+
+	tflog.Debug(ctx, "fetching merge request diff", map[string]any{"project": project, "mr": mr, "resolved_sha": sha})
 
 	var files []fileDiff
 	opt := &golab.ListMergeRequestDiffsOptions{ListOptions: golab.ListOptions{PerPage: 100}}
@@ -80,13 +85,17 @@ func (c *client) ResolveMR(ctx context.Context, project string, mr int64, token 
 				diff:        d.Diff,
 			})
 		}
+		tflog.Debug(ctx, "fetched diff page", map[string]any{"project": project, "mr": mr, "page": resp.CurrentPage, "file_count": len(diffs)})
 		if resp.NextPage == 0 {
 			break
 		}
 		opt.Page = resp.NextPage
 	}
 
-	return Resolution{SHA: sha, Diff: renderUnifiedDiff(files)}, nil
+	diff := renderUnifiedDiff(files)
+	tflog.Debug(ctx, "resolved merge request", map[string]any{"project": project, "mr": mr, "resolved_sha": sha, "file_count": len(files), "diff_bytes": len(diff)})
+
+	return Resolution{SHA: sha, Diff: diff}, nil
 }
 
 func (c *client) ResolveCommit(ctx context.Context, project, sha, token string) (Resolution, error) {
@@ -94,6 +103,8 @@ func (c *client) ResolveCommit(ctx context.Context, project, sha, token string) 
 	if err != nil {
 		return Resolution{}, err
 	}
+
+	tflog.Debug(ctx, "fetching commit diff", map[string]any{"project": project, "sha": sha})
 
 	var files []fileDiff
 	opt := &golab.GetCommitDiffOptions{ListOptions: golab.ListOptions{PerPage: 100}}
@@ -114,13 +125,17 @@ func (c *client) ResolveCommit(ctx context.Context, project, sha, token string) 
 				diff:        d.Diff,
 			})
 		}
+		tflog.Debug(ctx, "fetched diff page", map[string]any{"project": project, "sha": sha, "page": resp.CurrentPage, "file_count": len(diffs)})
 		if resp.NextPage == 0 {
 			break
 		}
 		opt.Page = resp.NextPage
 	}
 
-	return Resolution{SHA: sha, Diff: renderUnifiedDiff(files)}, nil
+	diff := renderUnifiedDiff(files)
+	tflog.Debug(ctx, "resolved commit", map[string]any{"project": project, "sha": sha, "file_count": len(files), "diff_bytes": len(diff)})
+
+	return Resolution{SHA: sha, Diff: diff}, nil
 }
 
 // newGitLab builds a gitlab.Client, applying the optional base URL

@@ -72,9 +72,26 @@ Closed this roadmap's former "Now / Next" item 3.
 - `provider.go`'s top-level schema gained a `MarkdownDescription` (previously only its attributes had one), so `docs/index.md` isn't blank.
 - `treefmt`'s `mdformat` corrupts tfplugindocs' YAML frontmatter (turns the `---` delimiters into a horizontal rule), so `docs/index.md`, `docs/resources/**`, and `docs/data-sources/**` are excluded from it in `flake.nix`, same as the existing skills excludes.
 
+### Phase 9: Structured logging (2026-08-21)
+
+Closed this roadmap's former "Now / Next" item 4.
+
+- `internal/git/execgit/client.go` and `internal/git/gogit/client.go` now call `tflog.Debug` around `LsRemote`, `ApplyPatches`'s clone/per-patch/push phases, and `IsAncestor`'s cheap-fetch/fallback-fetch phases, using identical message text and field names across both backends so switching `git_implementation` doesn't change what a `TF_LOG=DEBUG` trace looks like for the same operation.
+- `internal/git/github/client.go` and `internal/git/gitlab/client.go` gained matching `tflog.Debug` calls around their PR/MR/commit resolution and diff fetch round trips, including a line per page for GitLab's paginated diff endpoints.
+- No secrets (tokens, SSH keys, passphrases) are ever passed to a `tflog` field; only non-secret identifiers (URLs, branch names, refs, commit SHAs, repository/project names, PR/MR numbers, page numbers, byte counts) are logged.
+- No subsystems: everything logs through the framework's default provider logger, since there was no case here for an independently-toggleable log domain.
+
+### Phase 10: Release pipeline (in flight, branch `versioning`, not yet merged to `main`)
+
+Not part of this branch's history, but tracked here since it resolves what would otherwise be the top "Now / Next" item below: this provider had no way to be installed from a registry at all.
+
+- `58d55dc` (on `origin/versioning`) adds `release-please` (version bumps, `CHANGELOG.md` generation, and release PRs from conventional commits), `goreleaser` (multi-platform build/publish on tag push, `.goreleaser.yml`), a PR-title-lint workflow (semantic PR titles, since `release-please` depends on them), and switches `flake.nix`'s hardcoded `version = "0.0.1"` to read from a `release-please`-managed `VERSION` file.
+- Not yet verified: whether `goreleaser.yml` signs release artifacts (GPG signing is required for both the Terraform Registry and OpenTofu Registry to accept a provider, not just building/publishing binaries). Worth checking `.goreleaser.yml` on that branch before treating this item as fully closed.
+- `main.go`'s `providerserver.ServeOpts.Address` is hardcoded to `registry.opentofu.org/UnstoppableMango/git`; worth confirming that's the intended single target (vs. also publishing to `registry.terraform.io`) once this branch merges.
+
 ## Now / Next
 
-Everything below is open relative to GOALS.md/DESIGN.md as of this branch.
+Everything below is open relative to GOALS.md/DESIGN.md as of this branch, plus a broader production-readiness pass (2026-08-21) looking past DESIGN.md at what's needed to run this provider against real, unattended infrastructure.
 Ordered roughly by how load-bearing it is for the provider's stated purpose, not by effort.
 
 ### 1. Hosting-API backend used only for read paths
@@ -100,6 +117,22 @@ Lower priority than the items above since nothing in GOALS.md commits to a speci
 DESIGN.md's edge-case list still poses this as an open question ("needs verifying against the actual backend behavior").
 Given `on_conflict` now exists (`fail` compare-and-swaps against the last-observed tip; `force` unconditionally overwrites), this is very likely already covered as a side effect of Phase 5's work, but there's no test explicitly naming this scenario ("branch tip drifted to unrelated content, not just a stale patch stack").
 Worth an explicit Ginkgo spec to confirm and let DESIGN.md's wording be updated, rather than new implementation work.
+
+### 4. Local-clone backend has no shallow clone and no retry/backoff
+
+`execgit/client.go`'s `ApplyPatches` and `IsAncestor` (and `gogit`'s equivalents) do a full-history `git clone`/`fetch` on every `Create`/`Update`/ancestry check, with no `--depth`. Fine for small repos; a real cost/latency concern at production scale on repos with long history, since every apply re-downloads it all. Separately, none of the local-clone git operations retry on transient network failures, unlike the GitLab API client (which has retry-with-backoff on by default, per `WithoutRetries`'s doc comment in `internal/git/gitlab/client.go`). A flaky connection just fails the apply outright.
+
+### 5. SSH host-key verification is implicit
+
+`execgit/ssh_wrapper.sh` runs `ssh -i "$GIT_PROVIDER_SSH_KEY" -o IdentitiesOnly=yes "$@"` with no `StrictHostKeyChecking` handling and no schema-level way to supply `known_hosts` content. It relies entirely on the ambient `known_hosts` file, which ephemeral CI runners commonly don't have populated for a new host, making first-run SSH auth fail unpredictably rather than being configurable declaratively. (`gogit`'s go-git backend does this correctly already, per Phase 7's notes: an unset `HostKeyCallback` builds a `known_hosts`-based one automatically.)
+
+### 6. Acceptance tests require live GitHub access
+
+CI's `TF_ACC=1 go tool ginkgo run -r` step depends on a real `ACCTEST_GITHUB_TOKEN` and live network access to GitHub. There's no offline/mocked path, so the suite can't run in a fork without registry-provided secrets, or air-gapped. Lower priority than the items above, since it's a CI/contributor-experience gap rather than a runtime one.
+
+### 7. Missing governance docs
+
+No `SECURITY.md` (worth having given this provider handles tokens and SSH private keys directly) and no `CONTRIBUTING.md`. `CHANGELOG.md` is already covered by the `versioning` branch's `release-please` setup (Phase 10), so it's not listed here as a separate gap.
 
 ### Not roadmap items (explicit non-goals, per GOALS.md)
 

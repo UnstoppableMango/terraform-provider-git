@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	gogithub "github.com/google/go-github/v75/github"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
 // Option configures a client constructed via New.
@@ -48,6 +49,8 @@ func (c *client) ResolvePR(ctx context.Context, repository string, pr int64, tok
 		return Resolution{}, err
 	}
 
+	tflog.Debug(ctx, "resolving pull request", map[string]any{"repository": repository, "pr": pr})
+
 	pull, _, err := gh.PullRequests.Get(ctx, owner, name, int(pr))
 	if err != nil {
 		return Resolution{}, fmt.Errorf("resolving pull request: %w", err)
@@ -58,10 +61,14 @@ func (c *client) ResolvePR(ctx context.Context, repository string, pr int64, tok
 		return Resolution{}, fmt.Errorf("pull request response missing head commit sha")
 	}
 
+	tflog.Debug(ctx, "fetching pull request diff", map[string]any{"repository": repository, "pr": pr, "resolved_sha": sha})
+
 	diff, _, err := gh.PullRequests.GetRaw(ctx, owner, name, int(pr), gogithub.RawOptions{Type: gogithub.Diff})
 	if err != nil {
 		return Resolution{}, fmt.Errorf("fetching diff: %w", err)
 	}
+
+	tflog.Debug(ctx, "resolved pull request", map[string]any{"repository": repository, "pr": pr, "resolved_sha": sha, "diff_bytes": len(diff)})
 
 	return Resolution{SHA: sha, Diff: diff}, nil
 }
@@ -77,10 +84,14 @@ func (c *client) ResolveCommit(ctx context.Context, repository, sha, token strin
 		return Resolution{}, err
 	}
 
+	tflog.Debug(ctx, "fetching commit diff", map[string]any{"repository": repository, "sha": sha})
+
 	diff, _, err := gh.Repositories.GetCommitRaw(ctx, owner, name, sha, gogithub.RawOptions{Type: gogithub.Diff})
 	if err != nil {
 		return Resolution{}, fmt.Errorf("fetching diff: %w", err)
 	}
+
+	tflog.Debug(ctx, "resolved commit", map[string]any{"repository": repository, "sha": sha, "diff_bytes": len(diff)})
 
 	return Resolution{SHA: sha, Diff: diff}, nil
 }

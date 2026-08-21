@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/hashicorp/terraform-plugin-log/tflog"
+
 	providergit "github.com/UnstoppableMango/terraform-provider-git/internal/git"
 )
 
@@ -42,6 +44,8 @@ func (c *client) LsRemote(ctx context.Context, url string, auth providergit.Auth
 	}
 	defer cleanup()
 
+	tflog.Debug(ctx, "listing remote refs", map[string]any{"url": url})
+
 	cmd := exec.CommandContext(ctx, gitPath, "ls-remote", "--", url)
 	cmd.Env = env
 
@@ -53,7 +57,10 @@ func (c *client) LsRemote(ctx context.Context, url string, auth providergit.Auth
 		return nil, fmt.Errorf("ls-remote %s: %w: %s", url, err, strings.TrimSpace(stderr.String()))
 	}
 
-	return parseLsRemote(stdout.String()), nil
+	refs := parseLsRemote(stdout.String())
+	tflog.Debug(ctx, "listed remote refs", map[string]any{"url": url, "ref_count": len(refs)})
+
+	return refs, nil
 }
 
 // gitEnv builds the environment for git invocations against a remote,
@@ -134,6 +141,8 @@ func (c *client) ApplyPatches(ctx context.Context, req providergit.ApplyPatchesR
 
 	cloneDir := filepath.Join(workdir, "repo")
 
+	tflog.Debug(ctx, "cloning repository", map[string]any{"url": req.URL, "branch": req.Branch})
+
 	if _, err := runGit(ctx, gitPath, "", env, "clone", "--origin=origin", req.URL, cloneDir); err != nil {
 		return providergit.ApplyPatchesResult{}, fmt.Errorf("cloning %s: %w", req.URL, err)
 	}
@@ -151,6 +160,8 @@ func (c *client) ApplyPatches(ctx context.Context, req providergit.ApplyPatchesR
 	}
 
 	for i, patch := range req.Patches {
+		tflog.Debug(ctx, "applying patch", map[string]any{"patch_index": i + 1, "patch_count": len(req.Patches)})
+
 		patchFile, err := os.CreateTemp(workdir, fmt.Sprintf("patch-%d-*.diff", i+1))
 		if err != nil {
 			return providergit.ApplyPatchesResult{}, fmt.Errorf("writing patch %d: %w", i+1, err)
@@ -187,11 +198,16 @@ func (c *client) ApplyPatches(ctx context.Context, req providergit.ApplyPatchesR
 	refspec := fmt.Sprintf("HEAD:%s", dstRef)
 
 	pushArgs := []string{"push", "origin", refspec}
+	pushFields := map[string]any{"url": req.URL, "branch": req.Branch, "push_mode": "force"}
 	if req.ExpectedTip != "" {
 		pushArgs = append(pushArgs, fmt.Sprintf("--force-with-lease=%s:%s", dstRef, req.ExpectedTip))
+		pushFields["push_mode"] = "force_with_lease"
+		pushFields["expected_tip"] = req.ExpectedTip
 	} else {
 		pushArgs = append(pushArgs, "--force")
 	}
+
+	tflog.Debug(ctx, "pushing branch", pushFields)
 
 	if _, err := runGit(ctx, gitPath, cloneDir, env, pushArgs...); err != nil {
 		if req.ExpectedTip != "" && isLeaseRejection(err) {
@@ -199,6 +215,8 @@ func (c *client) ApplyPatches(ctx context.Context, req providergit.ApplyPatchesR
 		}
 		return providergit.ApplyPatchesResult{}, fmt.Errorf("pushing %s: %w", req.Branch, err)
 	}
+
+	tflog.Debug(ctx, "applied patch stack", map[string]any{"url": req.URL, "branch": req.Branch, "patch_count": len(req.Patches), "resolved_sha": resolvedSHA})
 
 	return providergit.ApplyPatchesResult{ResolvedSHA: resolvedSHA}, nil
 }
@@ -232,15 +250,26 @@ func (c *client) IsAncestor(ctx context.Context, url string, auth providergit.Au
 	// (uploadpack.allowReachableSHA1InWant disabled); if either fetch
 	// fails, fall back to a full fetch of every branch so merge-base has
 	// complete history to work with.
+	tflog.Debug(ctx, "fetching ancestry", map[string]any{"url": url, "ancestor": ancestor, "descendant": descendant})
+
 	_, ancestorErr := runGit(ctx, gitPath, workdir, env, "fetch", url, ancestor)
 	_, descendantErr := runGit(ctx, gitPath, workdir, env, "fetch", url, descendant)
 	if ancestorErr != nil || descendantErr != nil {
+		tflog.Debug(ctx, "falling back to full history fetch", map[string]any{"url": url})
+
 		if _, err := runGit(ctx, gitPath, workdir, env, "fetch", url, "+refs/heads/*:refs/remotes/origin/*"); err != nil {
 			return false, fmt.Errorf("fetching history from %s: %w", url, err)
 		}
 	}
 
-	return runMergeBaseIsAncestor(ctx, gitPath, workdir, env, ancestor, descendant)
+	isAncestor, err := runMergeBaseIsAncestor(ctx, gitPath, workdir, env, ancestor, descendant)
+	if err != nil {
+		return false, err
+	}
+
+	tflog.Debug(ctx, "checked ancestry", map[string]any{"url": url, "ancestor": ancestor, "descendant": descendant, "is_ancestor": isAncestor})
+
+	return isAncestor, nil
 }
 
 // runMergeBaseIsAncestor reports whether ancestor is an ancestor of

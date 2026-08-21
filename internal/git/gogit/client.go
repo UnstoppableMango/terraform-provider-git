@@ -22,6 +22,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/go-git/go-git/v5/storage/memory"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 
 	providergit "github.com/UnstoppableMango/terraform-provider-git/internal/git"
 )
@@ -45,6 +46,8 @@ func (c *client) LsRemote(ctx context.Context, url string, auth providergit.Auth
 		URLs: []string{url},
 	})
 
+	tflog.Debug(ctx, "listing remote refs", map[string]any{"url": url})
+
 	refs, err := remote.ListContext(ctx, &git.ListOptions{
 		Auth:          method,
 		PeelingOption: git.AppendPeeled,
@@ -61,6 +64,8 @@ func (c *client) LsRemote(ctx context.Context, url string, auth providergit.Auth
 		})
 	}
 
+	tflog.Debug(ctx, "listed remote refs", map[string]any{"url": url, "ref_count": len(result)})
+
 	return result, nil
 }
 
@@ -69,6 +74,8 @@ func (c *client) ApplyPatches(ctx context.Context, req providergit.ApplyPatchesR
 	if err != nil {
 		return providergit.ApplyPatchesResult{}, fmt.Errorf("preparing SSH auth: %w", err)
 	}
+
+	tflog.Debug(ctx, "cloning repository", map[string]any{"url": req.URL, "branch": req.Branch})
 
 	repo, err := git.CloneContext(ctx, memory.NewStorage(), memfs.New(), &git.CloneOptions{
 		URL:  req.URL,
@@ -97,6 +104,8 @@ func (c *client) ApplyPatches(ctx context.Context, req providergit.ApplyPatchesR
 	resolvedHash := baseHash
 
 	for i, patch := range req.Patches {
+		tflog.Debug(ctx, "applying patch", map[string]any{"patch_index": i + 1, "patch_count": len(req.Patches)})
+
 		files, _, err := gitdiff.Parse(strings.NewReader(patch))
 		if err != nil {
 			return providergit.ApplyPatchesResult{}, fmt.Errorf("parsing patch %d: %w", i+1, err)
@@ -127,14 +136,19 @@ func (c *client) ApplyPatches(ctx context.Context, req providergit.ApplyPatchesR
 		RefSpecs:   []config.RefSpec{refspec},
 		Auth:       method,
 	}
+	pushFields := map[string]any{"url": req.URL, "branch": req.Branch, "push_mode": "force"}
 	if req.ExpectedTip != "" {
 		pushOpts.ForceWithLease = &git.ForceWithLease{
 			RefName: plumbing.NewBranchReferenceName(req.Branch),
 			Hash:    plumbing.NewHash(req.ExpectedTip),
 		}
+		pushFields["push_mode"] = "force_with_lease"
+		pushFields["expected_tip"] = req.ExpectedTip
 	} else {
 		pushOpts.Force = true
 	}
+
+	tflog.Debug(ctx, "pushing branch", pushFields)
 
 	err = repo.PushContext(ctx, pushOpts)
 	if err != nil {
@@ -143,6 +157,8 @@ func (c *client) ApplyPatches(ctx context.Context, req providergit.ApplyPatchesR
 		}
 		return providergit.ApplyPatchesResult{}, fmt.Errorf("pushing %s: %w", req.Branch, err)
 	}
+
+	tflog.Debug(ctx, "applied patch stack", map[string]any{"url": req.URL, "branch": req.Branch, "patch_count": len(req.Patches), "resolved_sha": resolvedHash.String()})
 
 	return providergit.ApplyPatchesResult{ResolvedSHA: resolvedHash.String()}, nil
 }
@@ -174,6 +190,8 @@ func (c *client) IsAncestor(ctx context.Context, url string, auth providergit.Au
 		URLs: []string{url},
 	})
 
+	tflog.Debug(ctx, "fetching ancestry", map[string]any{"url": url, "ancestor": ancestor, "descendant": descendant})
+
 	// Try fetching just the two commits we care about first (cheap). Some
 	// hosts reject fetching arbitrary SHAs; if that fails, fall back to a
 	// full fetch of every branch so ancestry can be checked against
@@ -186,6 +204,8 @@ func (c *client) IsAncestor(ctx context.Context, url string, auth providergit.Au
 		},
 	})
 	if shaErr != nil && !errors.Is(shaErr, git.NoErrAlreadyUpToDate) {
+		tflog.Debug(ctx, "falling back to full history fetch", map[string]any{"url": url})
+
 		fullErr := remote.FetchContext(ctx, &git.FetchOptions{
 			Auth:     method,
 			RefSpecs: []config.RefSpec{"+refs/heads/*:refs/remotes/origin/*"},
@@ -211,6 +231,8 @@ func (c *client) IsAncestor(ctx context.Context, url string, auth providergit.Au
 	if err != nil {
 		return false, fmt.Errorf("checking ancestry: %w", err)
 	}
+
+	tflog.Debug(ctx, "checked ancestry", map[string]any{"url": url, "ancestor": ancestor, "descendant": descendant, "is_ancestor": isAncestor})
 
 	return isAncestor, nil
 }
