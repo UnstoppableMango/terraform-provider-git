@@ -49,6 +49,7 @@ func (p *gitProvider) Metadata(_ context.Context, _ provider.MetadataRequest, re
 
 func (p *gitProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		MarkdownDescription: "Declares and reconciles the state of a git repository: tracked branches and a quilt-style ordered patch stack applied on top of them. See the [`git_repository`](../data-sources/repository.md) data source to reference an existing repository, [`git_branch`](../resources/branch.md) to track a branch and apply patches, and [`git_patch`](../data-sources/patch.md) to resolve a patch from a file, inline diff, GitHub PR/commit, or GitLab MR/commit.",
 		Attributes: map[string]schema.Attribute{
 			"git_implementation": schema.StringAttribute{
 				Optional:            true,

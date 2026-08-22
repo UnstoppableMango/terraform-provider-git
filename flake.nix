@@ -52,6 +52,7 @@
               golangci-lint
               opentofu
               sops
+              terraform-plugin-docs
             ];
 
             TF_ACC_TERRAFORM_PATH = "${pkgs.opentofu}/bin/tofu";

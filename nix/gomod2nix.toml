@@ -146,8 +146,8 @@ schema = 3
     hash = 'sha256-E/wSucsfXFcn2Gp1dBIuFgc1xRwTNGr7a+QRt9fQNqE='
 
   [mod.'github.com/hashicorp/terraform-json']
-    version = 'v0.27.2'
-    hash = 'sha256-sU3piJG6/f/Ig9uOgz0WEtreh0edr7WfOuGAe27YV5k='
+    version = 'v0.27.3-0.20260213134036-298b8f6b673a'
+    hash = 'sha256-6gWP7EADxhnR+a7LF/BeeJIshbnS33aTllukwyA/jvg='
 
   [mod.'github.com/hashicorp/terraform-plugin-framework']
     version = 'v1.19.0'
