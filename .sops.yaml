@@ -1,0 +1,3 @@
+creation_rules:
+  - path_regex: secrets/.*\.enc\.ya?ml$
+    pgp: B4986C137EB15A0C91FB69FE264283BBFDC491BC
