@@ -15,11 +15,12 @@ See [GOALS.md](GOALS.md) for the full vision and non-goals.
 
 ## Status
 
-Early and incomplete. Implemented so far:
+Early and incomplete.
+Implemented so far:
 
-- `git_repository` (data source) — resolves and verifies an existing repository via `ls-remote`.
-- `git_branch` (resource) — tracks a branch against a `base_ref`, applies an ordered `patches` stack on top of it, and force-pushes the result.
-- `git_patch` (data source) — resolves a unified diff and content-addressed ID from inline content, a local file, a GitHub PR/commit, or a GitLab MR/commit.
+- `git_repository` (data source): resolves and verifies an existing repository via `ls-remote`.
+- `git_branch` (resource): tracks a branch against a `base_ref`, applies an ordered `patches` stack on top of it, and force-pushes the result.
+- `git_patch` (data source): resolves a unified diff and content-addressed ID from inline content, a local file, a GitHub PR/commit, or a GitLab MR/commit.
 
 Not yet implemented: generated Registry docs.
 See [AGENTS.md](AGENTS.md#current-state-vs-design) for the up-to-date breakdown and [docs/DESIGN.md](docs/DESIGN.md) for the full resource model.
@@ -83,7 +84,8 @@ resource "git_branch" "feature" {
 }
 ```
 
-See [docs/DESIGN.md](docs/DESIGN.md#patch-semantics) for the full semantics, and [examples/full/github](examples/full/github) for a complete end-to-end run.
+See [docs/DESIGN.md](docs/DESIGN.md#patch-semantics) for the full semantics.
+See [examples/full/github](examples/full/github) and [examples/full/gitlab](examples/full/gitlab) for complete end-to-end runs.
 
 ## Development
 
