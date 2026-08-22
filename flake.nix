@@ -72,6 +72,9 @@
             ".agents/skills/**"
             ".claude/skills/**"
             "CHANGELOG.md"
+            "docs/index.md"
+            "docs/data-sources/**"
+            "docs/resources/**"
           ];
         };
     };
