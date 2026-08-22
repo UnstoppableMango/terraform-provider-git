@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.3](https://github.com/UnstoppableMango/terraform-provider-git/compare/v0.0.2...v0.0.3) (2026-08-22)
+
+
+### Bug Fixes
+
+* drop component prefix from release-please tags ([#48](https://github.com/UnstoppableMango/terraform-provider-git/issues/48)) ([5215527](https://github.com/UnstoppableMango/terraform-provider-git/commit/521552766f462e753496a42f848456ac82c43a74))
+
 ## [0.0.2](https://github.com/UnstoppableMango/terraform-provider-git/compare/terraform-provider-git-v0.0.1...terraform-provider-git-v0.0.2) (2026-08-22)
 
 
