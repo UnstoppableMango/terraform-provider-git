@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/config"
 	tfresource "github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
+	golab "gitlab.com/gitlab-org/api/client-go"
 )
 
 // These tests exercise the example configurations under examples/ directly,
@@ -119,6 +120,74 @@ func checkGitHubRepoDestroyed(token string) tfresource.TestCheckFunc {
 			}
 			if resp == nil || resp.StatusCode != http.StatusNotFound {
 				return fmt.Errorf("unexpected error checking repository %s was destroyed: %w", name, err)
+			}
+		}
+
+		return nil
+	}
+}
+
+// TestAccExampleGitLabFull provisions and destroys a real, throwaway project,
+// under whichever GitLab account the provided GITLAB_TOKEN authenticates as,
+// via the gitlabhq/gitlab provider, then tracks it with this provider.
+// Skipped unless GITLAB_TOKEN is set. Mirrors TestAccExampleGitHubFull.
+func TestAccExampleGitLabFull(t *testing.T) {
+	token := os.Getenv("GITLAB_TOKEN")
+	if token == "" {
+		t.Skip("GITLAB_TOKEN not set; skipping example that provisions a real GitLab project")
+	}
+
+	// The gitlab provider reads its token from this environment variable itself.
+	t.Setenv("GITLAB_TOKEN", token)
+
+	// Loaded via Config, not ConfigDirectory, since this example declares its own provider "git" block.
+	mainTf, err := os.ReadFile("../../examples/full/gitlab/main.tf")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tfresource.Test(t, tfresource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		// main.tf also declares the gitlab and random providers directly;
+		// ExternalProviders tells the test framework to download and lock
+		// them from the registry during init, since they aren't part of
+		// ProtoV6ProviderFactories above.
+		ExternalProviders: map[string]tfresource.ExternalProvider{
+			"gitlab": {Source: "gitlabhq/gitlab", VersionConstraint: ">= 17.0.0"},
+			"random": {Source: "hashicorp/random", VersionConstraint: ">= 3.0.0"},
+		},
+		CheckDestroy: checkGitLabProjectDestroyed(token),
+		Steps: []tfresource.TestStep{
+			{
+				Config: string(mainTf),
+				ConfigVariables: config.Variables{
+					"gitlab_token": config.StringVariable(token),
+				},
+			},
+		},
+	})
+}
+
+// checkGitLabProjectDestroyed confirms that no gitlab_project resource left
+// behind in state still exists on GitLab after the test run.
+func checkGitLabProjectDestroyed(token string) tfresource.TestCheckFunc {
+	return func(s *terraform.State) error {
+		client, err := golab.NewClient(token)
+		if err != nil {
+			return fmt.Errorf("creating gitlab client: %w", err)
+		}
+
+		for _, rs := range s.RootModule().Resources {
+			if rs.Type != "gitlab_project" {
+				continue
+			}
+
+			_, resp, err := client.Projects.GetProject(rs.Primary.ID, nil)
+			if err == nil {
+				return fmt.Errorf("project %s still exists after destroy", rs.Primary.ID)
+			}
+			if resp == nil || resp.StatusCode != http.StatusNotFound {
+				return fmt.Errorf("unexpected error checking project %s was destroyed: %w", rs.Primary.ID, err)
 			}
 		}
 

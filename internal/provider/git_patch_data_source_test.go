@@ -33,6 +33,7 @@ type patchModel struct {
 	File    types.String      `tfsdk:"file"`
 	Diff    types.String      `tfsdk:"diff"`
 	Github  *patchGithubModel `tfsdk:"github"`
+	Gitlab  *patchGitlabModel `tfsdk:"gitlab"`
 	Auth    *authModel        `tfsdk:"auth"`
 }
 
@@ -41,6 +42,13 @@ type patchGithubModel struct {
 	Pr         types.Int64  `tfsdk:"pr"`
 	Commit     types.String `tfsdk:"commit"`
 	Sha        types.String `tfsdk:"sha"`
+}
+
+type patchGitlabModel struct {
+	Project types.String `tfsdk:"project"`
+	Mr      types.Int64  `tfsdk:"mr"`
+	Commit  types.String `tfsdk:"commit"`
+	Sha     types.String `tfsdk:"sha"`
 }
 
 func sha256Hex(s string) string {
@@ -97,13 +105,14 @@ var _ = Describe("GitPatchDataSource", func() {
 			Expect(schemaResp.Diagnostics.HasError()).To(BeFalse())
 		})
 
-		It("defines exactly the id, content, file, diff, github, and auth attributes", func() {
-			Expect(patchSchema.Attributes).To(HaveLen(6))
+		It("defines exactly the id, content, file, diff, github, gitlab, and auth attributes", func() {
+			Expect(patchSchema.Attributes).To(HaveLen(7))
 			Expect(patchSchema.Attributes).To(HaveKey("id"))
 			Expect(patchSchema.Attributes).To(HaveKey("content"))
 			Expect(patchSchema.Attributes).To(HaveKey("file"))
 			Expect(patchSchema.Attributes).To(HaveKey("diff"))
 			Expect(patchSchema.Attributes).To(HaveKey("github"))
+			Expect(patchSchema.Attributes).To(HaveKey("gitlab"))
 			Expect(patchSchema.Attributes).To(HaveKey("auth"))
 		})
 
@@ -169,6 +178,46 @@ var _ = Describe("GitPatchDataSource", func() {
 				Expect(ok).To(BeTrue())
 				Expect(pr.IsOptional()).To(BeTrue())
 				Expect(pr.IsRequired()).To(BeFalse())
+
+				commit, ok := attrs["commit"]
+				Expect(ok).To(BeTrue())
+				Expect(commit.IsOptional()).To(BeTrue())
+				Expect(commit.IsRequired()).To(BeFalse())
+
+				sha, ok := attrs["sha"]
+				Expect(ok).To(BeTrue())
+				Expect(sha.IsComputed()).To(BeTrue())
+				Expect(sha.IsOptional()).To(BeFalse())
+				Expect(sha.IsRequired()).To(BeFalse())
+			})
+		})
+
+		Describe("gitlab attribute", func() {
+			It("is optional and defined as a single nested object", func() {
+				a := patchSchema.Attributes["gitlab"]
+				Expect(a.IsRequired()).To(BeFalse())
+				Expect(a.IsOptional()).To(BeTrue())
+
+				_, ok := a.(dschema.NestedAttribute)
+				Expect(ok).To(BeTrue(), "expected gitlab to be a nested attribute type")
+
+				_, ok = a.(dschema.SingleNestedAttribute)
+				Expect(ok).To(BeTrue(), "expected gitlab to be a schema.SingleNestedAttribute")
+			})
+
+			It("defines project (required), mr (optional), commit (optional), and sha (computed)", func() {
+				nested, ok := patchSchema.Attributes["gitlab"].(dschema.NestedAttribute)
+				Expect(ok).To(BeTrue(), "expected gitlab to be a nested attribute type")
+				attrs := nested.GetNestedObject().GetAttributes()
+
+				project, ok := attrs["project"]
+				Expect(ok).To(BeTrue())
+				Expect(project.IsRequired()).To(BeTrue())
+
+				mr, ok := attrs["mr"]
+				Expect(ok).To(BeTrue())
+				Expect(mr.IsOptional()).To(BeTrue())
+				Expect(mr.IsRequired()).To(BeFalse())
 
 				commit, ok := attrs["commit"]
 				Expect(ok).To(BeTrue())

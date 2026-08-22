@@ -28,6 +28,16 @@ data "git_patch" "from_github" {
   }
 }
 
+# Resolves a patch from a commit on a public GitLab project. gitlab-org/
+# gitlab-test is GitLab's own stable fixture project, kept around
+# specifically for use in tests and examples like this one.
+data "git_patch" "from_gitlab" {
+  gitlab = {
+    project = "gitlab-org/gitlab-test"
+    commit  = "2d1db523e11e777e49377cfb22d368deec3f0793"
+  }
+}
+
 output "content_patch_id" {
   value = data.git_patch.from_content.id
 }
@@ -38,4 +48,8 @@ output "file_patch_id" {
 
 output "github_patch_diff" {
   value = data.git_patch.from_github.diff
+}
+
+output "gitlab_patch_diff" {
+  value = data.git_patch.from_gitlab.diff
 }
