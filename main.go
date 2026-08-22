@@ -10,6 +10,8 @@ import (
 	"github.com/UnstoppableMango/terraform-provider-git/internal/provider"
 )
 
+//go:generate tfplugindocs generate
+
 func main() {
 	var debug bool
 	flag.BoolVar(&debug, "debug", false, "set to true to run the provider with support for debuggers like delve")

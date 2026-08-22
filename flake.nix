@@ -52,6 +52,7 @@
               golangci-lint
               opentofu
               sops
+              terraform-plugin-docs
             ];
 
             TF_ACC_TERRAFORM_PATH = "${pkgs.opentofu}/bin/tofu";
@@ -71,6 +72,9 @@
             ".agents/skills/**"
             ".claude/skills/**"
             "CHANGELOG.md"
+            "docs/index.md"
+            "docs/data-sources/**"
+            "docs/resources/**"
           ];
         };
     };

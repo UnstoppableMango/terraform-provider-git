@@ -1,5 +1,7 @@
 GO_SRC ?= $(shell find . -name '*.go')
 
+.PHONY: build test test-acc update check lint lint-go format fmt docs generate tidy
+
 build:
 	nix build .#
 
@@ -20,6 +22,9 @@ lint-go:
 
 format fmt:
 	nix fmt
+
+docs generate:
+	tfplugindocs generate
 
 tidy: go.sum nix/gomod2nix.toml
 
