@@ -21,11 +21,16 @@ import (
 type providerData struct {
 	GitClient    git.Client
 	GithubClient github.Client
+
+	// DefaultToken is the provider-level auth.token, used by resources and
+	// data sources as a fallback when their own auth.token is unset.
+	DefaultToken string
 }
 
 // gitProviderModel describes the provider-level configuration data model.
 type gitProviderModel struct {
-	GitImplementation types.String `tfsdk:"git_implementation"`
+	GitImplementation types.String            `tfsdk:"git_implementation"`
+	Auth              *gitRepositoryAuthModel `tfsdk:"auth"`
 }
 
 type gitProvider struct{}
@@ -48,6 +53,17 @@ func (p *gitProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *
 				MarkdownDescription: "Git implementation backend to use. Must be one of `go-git` or `exec`. Defaults to `go-git`.",
 				Validators: []validator.String{
 					stringvalidator.OneOf("go-git", "exec"),
+				},
+			},
+			"auth": schema.SingleNestedAttribute{
+				Optional:            true,
+				MarkdownDescription: "Default authentication details used to connect to repositories and hosts, applied when a resource or data source does not set its own `auth.token`.",
+				Attributes: map[string]schema.Attribute{
+					"token": schema.StringAttribute{
+						Optional:            true,
+						Sensitive:           true,
+						MarkdownDescription: "Default token used to authenticate with a repository host, unless overridden per-resource.",
+					},
 				},
 			},
 		},
@@ -75,7 +91,11 @@ func (p *gitProvider) Configure(ctx context.Context, req provider.ConfigureReque
 		client = gogit.New()
 	}
 
-	data := &providerData{GitClient: client, GithubClient: github.New()}
+	data := &providerData{
+		GitClient:    client,
+		GithubClient: github.New(),
+		DefaultToken: tokenFromModel(config.Auth, ""),
+	}
 	resp.DataSourceData = data
 	resp.ResourceData = data
 }

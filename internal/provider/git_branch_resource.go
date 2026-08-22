@@ -30,7 +30,8 @@ var _ resource.ResourceWithImportState = &gitBranchResource{}
 // are set, Create/Update apply them via the configured git.Client and
 // force-push the result to the branch on the remote.
 type gitBranchResource struct {
-	client git.Client
+	client       git.Client
+	defaultToken string
 }
 
 // gitBranchRepositoryModel describes the repository nested attribute data
@@ -78,6 +79,7 @@ func (r *gitBranchResource) Configure(_ context.Context, req resource.ConfigureR
 	}
 
 	r.client = data.GitClient
+	r.defaultToken = data.DefaultToken
 }
 
 // refKind identifies which of a branch's two remote refs a refNotFoundError
@@ -245,7 +247,7 @@ func (r *gitBranchResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 // ApplyPatches as a compare-and-swap guard. Pass "" when there is no prior
 // observation (Create) or on_conflict is "force".
 func (r *gitBranchResource) resolveModel(ctx context.Context, model *gitBranchResourceModel, apply bool, expectedTip string) error {
-	auth := authFromModel(model.Repository.Host, model.Repository.Auth)
+	auth := authFromModel(model.Repository.Host, model.Repository.Auth, r.defaultToken)
 	url := model.Repository.Url.ValueString()
 
 	hash, err := resolveBranchRef(ctx, r.client, url, auth, model.BaseRef.ValueString(), refKindBase)
@@ -310,7 +312,7 @@ func (r *gitBranchResource) checkBaseRefAncestry(ctx context.Context, oldBaseSha
 		return
 	}
 
-	auth := authFromModel(model.Repository.Host, model.Repository.Auth)
+	auth := authFromModel(model.Repository.Host, model.Repository.Auth, r.defaultToken)
 	url := model.Repository.Url.ValueString()
 
 	isAncestor, err := r.client.IsAncestor(ctx, url, auth, oldBaseSha, newBaseSha)
@@ -498,7 +500,7 @@ func (r *gitBranchResource) ImportState(ctx context.Context, req resource.Import
 	url := req.ID[:idx]
 	name := req.ID[idx+1:]
 
-	hash, err := resolveBranchRef(ctx, r.client, url, git.Auth{}, name, refKindBranchTip)
+	hash, err := resolveBranchRef(ctx, r.client, url, git.Auth{Token: r.defaultToken}, name, refKindBranchTip)
 	if err != nil {
 		resp.Diagnostics.AddError("Unable to Resolve Base Ref", err.Error())
 		return

@@ -21,7 +21,7 @@ Early and incomplete. Implemented so far:
 - `git_branch` (resource) — tracks a branch against a `base_ref`, applies an ordered `patches` stack on top of it, and force-pushes the result.
 - `git_patch` (data source) — resolves a unified diff and content-addressed ID from inline content, a local file, or a GitHub PR/commit.
 
-Not yet implemented: provider-level auth inheritance, configurable conflict handling (`fail` vs `force`), the GitLab hosting-API backend, and generated Registry docs.
+Not yet implemented: the GitLab hosting-API backend and generated Registry docs.
 See [AGENTS.md](AGENTS.md#current-state-vs-design) for the up-to-date breakdown and [docs/DESIGN.md](docs/DESIGN.md) for the full resource model.
 
 ## Usage
@@ -38,6 +38,12 @@ terraform {
 provider "git" {
   # "go-git" (default) or "exec".
   git_implementation = "go-git"
+
+  # Optional default auth, used by any resource/data source that doesn't
+  # set its own auth.token.
+  auth = {
+    token = "ghp_..."
+  }
 }
 ```
 

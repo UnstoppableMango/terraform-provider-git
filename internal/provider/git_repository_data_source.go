@@ -23,7 +23,8 @@ var _ datasource.DataSourceWithConfigure = &gitRepositoryDataSource{}
 // the host. It resolves connection details (URL, host type, auth) used by
 // other resources.
 type gitRepositoryDataSource struct {
-	client git.Client
+	client       git.Client
+	defaultToken string
 }
 
 // gitRepositoryDataSourceModel describes the data source's data model.
@@ -64,22 +65,25 @@ func (d *gitRepositoryDataSource) Configure(_ context.Context, req datasource.Co
 	}
 
 	d.client = data.GitClient
+	d.defaultToken = data.DefaultToken
 }
 
-// tokenFromModel extracts the auth token from m, treating a nil or unset
-// token as unauthenticated (empty string).
-func tokenFromModel(m *gitRepositoryAuthModel) string {
+// tokenFromModel extracts the auth token from m, falling back to
+// defaultToken (the provider-level auth.token, if any) when m has no token
+// of its own. A nil m is treated the same as an unset token.
+func tokenFromModel(m *gitRepositoryAuthModel, defaultToken string) string {
 	if m == nil || m.Token.IsNull() || m.Token.IsUnknown() {
-		return ""
+		return defaultToken
 	}
 
 	return m.Token.ValueString()
 }
 
-// authFromModel converts a gitRepositoryAuthModel into a git.Auth, treating
-// a nil or unset token as unauthenticated.
-func authFromModel(host types.String, m *gitRepositoryAuthModel) git.Auth {
-	return git.Auth{Token: tokenFromModel(m), Host: host.ValueString()}
+// authFromModel converts a gitRepositoryAuthModel into a git.Auth, falling
+// back to defaultToken (the provider-level auth.token, if any) when m has no
+// token of its own.
+func authFromModel(host types.String, m *gitRepositoryAuthModel, defaultToken string) git.Auth {
+	return git.Auth{Token: tokenFromModel(m, defaultToken), Host: host.ValueString()}
 }
 
 // verifyReachable checks that url is reachable with auth via the configured
@@ -136,7 +140,7 @@ func (d *gitRepositoryDataSource) Read(ctx context.Context, req datasource.ReadR
 		return
 	}
 
-	if err := d.verifyReachable(ctx, config.Url.ValueString(), authFromModel(config.Host, config.Auth)); err != nil {
+	if err := d.verifyReachable(ctx, config.Url.ValueString(), authFromModel(config.Host, config.Auth, d.defaultToken)); err != nil {
 		resp.Diagnostics.AddAttributeWarning(path.Root("url"), "Unable to Reach Repository", err.Error())
 	}
 

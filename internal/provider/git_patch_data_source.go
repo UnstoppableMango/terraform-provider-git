@@ -29,7 +29,8 @@ var _ datasource.DataSourceWithConfigValidators = &gitPatchDataSource{}
 // PR/commit). It does not clone, apply, commit, or push; that is
 // git_branch's responsibility once it exists.
 type gitPatchDataSource struct {
-	github github.Client
+	github       github.Client
+	defaultToken string
 }
 
 // gitPatchResourceModel describes the data source's data model.
@@ -74,6 +75,7 @@ func (d *gitPatchDataSource) Configure(_ context.Context, req datasource.Configu
 	}
 
 	d.github = data.GithubClient
+	d.defaultToken = data.DefaultToken
 }
 
 func (d *gitPatchDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
@@ -178,7 +180,7 @@ func (d *gitPatchDataSource) resolve(ctx context.Context, model *gitPatchResourc
 			return errGithubNotConfigured
 		}
 
-		token := tokenFromModel(model.Auth)
+		token := tokenFromModel(model.Auth, d.defaultToken)
 
 		var resolution github.Resolution
 		var err error
