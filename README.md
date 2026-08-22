@@ -1,6 +1,7 @@
 # terraform-provider-git
 
 [![CI](https://github.com/UnstoppableMango/terraform-provider-git/actions/workflows/ci.yml/badge.svg)](https://github.com/UnstoppableMango/terraform-provider-git/actions/workflows/ci.yml)
+[![Terraform Registry](https://img.shields.io/badge/terraform-registry-844FBA)](https://registry.terraform.io/providers/UnstoppableMango/git/latest)
 [![Go Reference](https://pkg.go.dev/badge/github.com/UnstoppableMango/terraform-provider-git.svg)](https://pkg.go.dev/github.com/UnstoppableMango/terraform-provider-git)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![built with nix](https://builtwithnix.org/badge.svg)](https://builtwithnix.org)
@@ -26,6 +27,8 @@ Not yet implemented: generated Registry docs.
 See [AGENTS.md](AGENTS.md#current-state-vs-design) for the up-to-date breakdown and [docs/DESIGN.md](docs/DESIGN.md) for the full resource model.
 
 ## Usage
+
+Published on the [Terraform Registry](https://registry.terraform.io/providers/UnstoppableMango/git/latest) as `UnstoppableMango/git`.
 
 ```hcl
 terraform {
