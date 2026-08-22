@@ -69,6 +69,7 @@
           treefmt.settings.formatter.mdformat.excludes = [
             ".agents/skills/**"
             ".claude/skills/**"
+            "CHANGELOG.md"
           ];
         };
     };
