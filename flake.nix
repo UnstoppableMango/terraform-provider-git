@@ -51,6 +51,7 @@
               nixfmt
               golangci-lint
               opentofu
+              sops
             ];
 
             TF_ACC_TERRAFORM_PATH = "${pkgs.opentofu}/bin/tofu";
