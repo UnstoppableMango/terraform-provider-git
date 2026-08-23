@@ -7,24 +7,25 @@
 [![built with nix](https://builtwithnix.org/badge.svg)](https://builtwithnix.org)
 [![Latest commit](https://img.shields.io/github/last-commit/UnstoppableMango/terraform-provider-git)](https://github.com/UnstoppableMango/terraform-provider-git/commits/main)
 
-A [Terraform](https://www.terraform.io/) provider that declares and reconciles the state of a git repository: tracked branches and a quilt-style ordered patch stack applied on top of them.
+Manage a git repository with [Terraform](https://www.terraform.io/): the branches you track, and the patches stacked on top of them.
 
 ## Why
 
-Instead of hand-maintaining long-lived feature branches or juggling patch series by hand, the desired state lives in HCL and Terraform reconciles the repository to match.
-See [GOALS.md](GOALS.md) for the full vision and non-goals.
+Long-lived branches and patch series are tedious to keep by hand.
+You rebase, you resolve the same conflict again, you lose track of which patch belongs where.
+Write it down in HCL instead and let `terraform apply` do the bookkeeping.
+
+[GOALS.md](GOALS.md) says what this is and isn't trying to be.
 
 ## Status
 
-Early and incomplete.
-Implemented so far:
+Early. Three things work:
 
-- `git_repository` (data source): resolves and verifies an existing repository via `ls-remote`.
-- `git_branch` (resource): tracks a branch against a `base_ref`, applies an ordered `patches` stack on top of it, and force-pushes the result.
-- `git_patch` (data source): resolves a unified diff and content-addressed ID from inline content, a local file, a GitHub PR/commit, or a GitLab MR/commit.
+- `git_repository` (data source) points at a repository that already exists and checks it's reachable with `ls-remote`.
+- `git_branch` (resource) tracks a branch against a `base_ref`, applies an ordered `patches` stack on top, and force-pushes the result.
+- `git_patch` (data source) turns an inline diff, a local file, a GitHub PR or commit, or a GitLab MR or commit into a unified diff plus a content-addressed ID.
 
-Not yet implemented: generated Registry docs.
-See [AGENTS.md](AGENTS.md#current-state-vs-design) for the up-to-date breakdown and [docs/DESIGN.md](docs/DESIGN.md) for the full resource model.
+[AGENTS.md](AGENTS.md#current-state-vs-design) tracks what's actually built, [docs/DESIGN.md](docs/DESIGN.md) covers the rest of the intended model.
 
 ## Usage
 
@@ -67,8 +68,8 @@ resource "git_branch" "main" {
 
 ### Declaring a patch stack
 
-This is the provider's core value-add: an ordered stack of patches, declared in HCL, applied on top of a tracked branch, quilt-style.
-Reordering, adding, or removing entries in `patches` rewrites the stack from `base_ref` on the next `apply`.
+This is the part worth having: an ordered list of patches applied on top of a tracked branch, quilt-style.
+Reorder the list, add an entry, or drop one, and the next `apply` rebuilds the whole stack from `base_ref`.
 
 ```hcl
 data "git_patch" "from_github_pr" {
@@ -87,12 +88,12 @@ resource "git_branch" "feature" {
 }
 ```
 
-See [docs/DESIGN.md](docs/DESIGN.md#patch-semantics) for the full semantics.
-See [examples/full/github](examples/full/github) and [examples/full/gitlab](examples/full/gitlab) for complete end-to-end runs.
+[docs/DESIGN.md](docs/DESIGN.md#patch-semantics) has the exact semantics.
+[examples/full/github](examples/full/github) and [examples/full/gitlab](examples/full/gitlab) are end-to-end runs you can apply yourself.
 
 ## Development
 
-Requires the [Nix](https://nixos.org/) dev shell (`direnv allow` picks it up automatically via `.envrc`).
+You'll want the [Nix](https://nixos.org/) dev shell; `direnv allow` picks it up from `.envrc`.
 
 ```sh
 make build   # nix build .#
@@ -101,16 +102,16 @@ make check   # nix flake check (lint)
 make fmt     # nix fmt (gofmt, nixfmt, actionlint)
 ```
 
-Run a single package or spec with Ginkgo directly:
+To run one package or one spec, call Ginkgo directly:
 
 ```sh
 go tool ginkgo run ./internal/provider
 go tool ginkgo run --focus "<Describe/It text>" ./internal/provider
 ```
 
-After touching `go.mod`, regenerate lockfiles with `make tidy`.
+Touched `go.mod`? Run `make tidy` to regenerate the lockfiles.
 
-See [AGENTS.md](AGENTS.md) for architecture notes.
+Architecture notes live in [AGENTS.md](AGENTS.md).
 
 ## License
 

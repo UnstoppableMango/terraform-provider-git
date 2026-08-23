@@ -1,24 +1,24 @@
 # Goals
 
-`terraform-provider-git` declares and converges the desired state of a git repository, the way other providers declare the desired state of cloud infrastructure.
+`terraform-provider-git` treats a git repository the way other providers treat cloud infrastructure: you describe the state you want, and it converges the repository toward that.
 
 ## Vision
 
-Terraform manages a repository's branches and the patch stack applied on top of them, quilt-style.
-Instead of hand-maintaining long-lived feature branches or juggling patch series by hand, the desired state lives in HCL and Terraform reconciles the repository to match.
+Terraform owns a repository's branches and the patch stack sitting on top of them, quilt-style.
+Long-lived branches and patch series are tedious to keep by hand, so the intent lives in HCL and `terraform apply` does the bookkeeping.
 
 ## What it does
 
-- References an existing git repository.
+- Points at a repository that already exists.
 - Tracks a branch against an upstream ref.
 - Tracks an ordered stack of patches applied on top of that branch.
-- Updates state with the observed ref on every read, so drift shows up in `terraform plan`.
-- Supports auth for hosted providers such as GitHub and GitLab.
+- Records the ref it actually observed on every read, so drift shows up in `terraform plan`.
+- Authenticates against hosts like GitHub and GitLab.
 
 ## Non-goals
 
-- Creating or deleting repositories on a host. Use the host's own provider (e.g. `github_repository`) for that.
-- Managing host-specific repository settings, permissions, or webhooks.
-- Acting as a long-term patch archive.
+- Creating or deleting repositories on a host. That's what `github_repository` and friends are for.
+- Host-specific settings, permissions, or webhooks.
+- Serving as a long-term archive for patches.
 
-See [docs/DESIGN.md](docs/DESIGN.md) for resource shapes, backends, and reconciliation details.
+Resource shapes, backends, and reconciliation details are in [docs/DESIGN.md](docs/DESIGN.md).

@@ -181,7 +181,7 @@ func (c *client) IsAncestor(ctx context.Context, url string, auth providergit.Au
 
 	// A commit that couldn't be found even after the fallback fetch is
 	// treated the same as "not an ancestor" (rewritten away / GC'd), not as
-	// an error — see the IsAncestor doc comment on git.Client.
+	// an error; see the IsAncestor doc comment on git.Client.
 	ancestorCommit, err := object.GetCommit(storer, ancestorHash)
 	if err != nil {
 		return false, nil

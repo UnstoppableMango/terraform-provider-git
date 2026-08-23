@@ -1,8 +1,8 @@
-# Omits the required_providers block since this example also runs as an
-# acceptance test against an in-process build; see examples/provider/provider.tf.
+# No required_providers block here: this example doubles as an acceptance test
+# against an in-process build. See examples/provider/provider.tf for one.
 
-# Tracks the "main" branch of a public repository. Safe to run against a
-# repository you don't own; git_branch never pushes.
+# Tracks the "main" branch of a public repository. Safe against a repository you
+# don't own: with no patches set, git_branch never pushes.
 resource "git_branch" "main" {
   repository = {
     url  = "https://github.com/UnstoppableMango/terraform-provider-git.git"

@@ -1,7 +1,7 @@
-# Omits the required_providers block since this example also runs as an
-# acceptance test against an in-process build; see examples/provider/provider.tf.
+# No required_providers block here: this example doubles as an acceptance test
+# against an in-process build. See examples/provider/provider.tf for one.
 
-# Resolves a patch from an inline unified diff.
+# From an inline unified diff.
 data "git_patch" "from_content" {
   content = <<-EOT
     diff --git a/example.txt b/example.txt
@@ -14,13 +14,13 @@ data "git_patch" "from_content" {
   EOT
 }
 
-# Resolves a patch from a local file. abspath() ensures the path resolves
-# correctly regardless of the provider process's working directory.
+# From a local file. abspath() keeps the path correct no matter what working
+# directory the provider process happens to be in.
 data "git_patch" "from_file" {
   file = abspath("${path.module}/sample.patch")
 }
 
-# Resolves a patch from a commit on a public GitHub repository.
+# From a commit on a public GitHub repository.
 data "git_patch" "from_github" {
   github = {
     repository = "UnstoppableMango/terraform-provider-git"
@@ -28,9 +28,9 @@ data "git_patch" "from_github" {
   }
 }
 
-# Resolves a patch from a commit on a public GitLab project. gitlab-org/
-# gitlab-test is GitLab's own stable fixture project, kept around
-# specifically for use in tests and examples like this one.
+# From a commit on a public GitLab project. gitlab-org/gitlab-test is GitLab's
+# own fixture project, which exists precisely so tests and examples like this
+# one have something stable to point at.
 data "git_patch" "from_gitlab" {
   gitlab = {
     project = "gitlab-org/gitlab-test"

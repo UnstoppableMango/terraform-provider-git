@@ -49,23 +49,23 @@ func (p *gitProvider) Metadata(_ context.Context, _ provider.MetadataRequest, re
 
 func (p *gitProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Declares and reconciles the state of a git repository: tracked branches and a quilt-style ordered patch stack applied on top of them. See the [`git_repository`](../data-sources/repository.md) data source to reference an existing repository, [`git_branch`](../resources/branch.md) to track a branch and apply patches, and [`git_patch`](../data-sources/patch.md) to resolve a patch from a file, inline diff, GitHub PR/commit, or GitLab MR/commit.",
+		MarkdownDescription: "Manages a git repository from Terraform: the branches you track, and the quilt-style patch stack applied on top of them. Use the [`git_repository`](../data-sources/repository.md) data source to point at a repository that already exists, [`git_branch`](../resources/branch.md) to track a branch and apply patches to it, and [`git_patch`](../data-sources/patch.md) to pull a patch out of a file, an inline diff, a GitHub PR or commit, or a GitLab MR or commit.",
 		Attributes: map[string]schema.Attribute{
 			"git_implementation": schema.StringAttribute{
 				Optional:            true,
-				MarkdownDescription: "Git implementation backend to use. Must be one of `go-git` or `exec`. Defaults to `go-git`.",
+				MarkdownDescription: "Which git implementation to use behind the scenes. One of `go-git` or `exec`. Defaults to `go-git`.",
 				Validators: []validator.String{
 					stringvalidator.OneOf("go-git", "exec"),
 				},
 			},
 			"auth": schema.SingleNestedAttribute{
 				Optional:            true,
-				MarkdownDescription: "Default authentication details used to connect to repositories and hosts, applied when a resource or data source does not set its own `auth.token`.",
+				MarkdownDescription: "Default credentials for connecting to repositories and hosts, used whenever a resource or data source doesn't set its own `auth.token`.",
 				Attributes: map[string]schema.Attribute{
 					"token": schema.StringAttribute{
 						Optional:            true,
 						Sensitive:           true,
-						MarkdownDescription: "Default token used to authenticate with a repository host, unless overridden per-resource.",
+						MarkdownDescription: "Default token for authenticating with a repository host. Any resource can override it.",
 					},
 				},
 			},

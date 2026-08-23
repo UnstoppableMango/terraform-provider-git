@@ -3,20 +3,20 @@
 page_title: "git_repository Data Source - terraform-provider-git"
 subcategory: ""
 description: |-
-  References an existing repository. Reference-only: this provider never creates or deletes repositories on the host. It resolves connection details (URL, host type, auth) used by other resources.
+  Points at a repository that already exists and works out the connection details (URL, host type, auth) other resources need. Read-only by design: this provider never creates or deletes repositories on the host.
 ---
 
 # git_repository (Data Source)
 
-References an existing repository. Reference-only: this provider never creates or deletes repositories on the host. It resolves connection details (URL, host type, auth) used by other resources.
+Points at a repository that already exists and works out the connection details (URL, host type, auth) other resources need. Read-only by design: this provider never creates or deletes repositories on the host.
 
 ## Example Usage
 
 ```terraform
-# Omits the required_providers block since this example also runs as an
-# acceptance test against an in-process build; see examples/provider/provider.tf.
+# No required_providers block here: this example doubles as an acceptance test
+# against an in-process build. See examples/provider/provider.tf for one.
 
-# Resolves and verifies a public repository via ls-remote.
+# Checks a public repository is there and reachable, via ls-remote.
 data "git_repository" "this" {
   url  = "https://github.com/UnstoppableMango/terraform-provider-git.git"
   host = "github"
@@ -41,7 +41,7 @@ output "repository_id" {
 
 ### Read-Only
 
-- `id` (String) Identifier for the repository. Mirrors the `url` attribute.
+- `id` (String) Identifier for the repository, which is just the `url` again.
 
 <a id="nestedatt--auth"></a>
 ### Nested Schema for `auth`

@@ -85,7 +85,7 @@ func (r *gitBranchResource) Configure(_ context.Context, req resource.ConfigureR
 // refKind identifies which of a branch's two remote refs a refNotFoundError
 // came from: the configured base_ref, or the tracked branch's own tip
 // (looked up by Name). The two carry different implications when a ref
-// vanishes — see refNotFoundError and its use in Read.
+// vanishes; see refNotFoundError and its use in Read.
 type refKind int
 
 const (
@@ -148,11 +148,11 @@ func resolveBranchRef(ctx context.Context, client git.Client, url string, auth g
 
 func (r *gitBranchResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Tracks a branch's base ref within a repository, and optionally an ordered patch stack applied on top of it. When `patches` is set, the resulting commits are force-pushed to the branch on the remote; otherwise this resource only resolves and tracks the observed base ref.",
+		MarkdownDescription: "Tracks a branch's base ref inside a repository, plus an optional ordered patch stack applied on top of it. With `patches` set, the resulting commits get force-pushed to the branch on the remote. Without it, this resource only resolves and tracks the base ref it observes.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:            true,
-				MarkdownDescription: "Identifier for the branch. Combines the repository URL and branch name as `<url>#<name>`.",
+				MarkdownDescription: "Identifier for the branch: the repository URL and branch name joined as `<url>#<name>`.",
 			},
 			"repository": schema.SingleNestedAttribute{
 				Required:            true,
@@ -203,22 +203,22 @@ func (r *gitBranchResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 			// prior state. Do not add UseStateForUnknown here.
 			"base_sha": schema.StringAttribute{
 				Computed:            true,
-				MarkdownDescription: "Resolved commit hash of `base_ref` as of the last read.",
+				MarkdownDescription: "Commit `base_ref` pointed at as of the last read.",
 			},
 			"resolved_ref": schema.StringAttribute{
 				Computed:            true,
-				MarkdownDescription: "Resolved commit hash the branch currently tracks.",
+				MarkdownDescription: "Commit the branch currently tracks, once the patch stack has been applied.",
 			},
 			"patches": schema.ListAttribute{
 				ElementType:         types.StringType,
 				Optional:            true,
-				MarkdownDescription: "Ordered list of patch diffs applied on top of base_ref, in the spirit of quilt push. When set, the resulting commits are force-pushed to the branch on the remote.",
+				MarkdownDescription: "Ordered list of patch diffs to apply on top of `base_ref`, the way `quilt push` would. When set, the resulting commits are force-pushed to the branch on the remote.",
 			},
 			"on_conflict": schema.StringAttribute{
 				Optional:            true,
 				Computed:            true,
 				Default:             stringdefault.StaticString("force"),
-				MarkdownDescription: "How to handle the branch's remote tip having moved since it was last observed, when pushing the patch stack. `force` (default) always force-pushes, discarding drift, matching this provider's historical behavior. `fail` aborts the push instead of clobbering unexpected remote changes; re-run `terraform apply` to pick up the new tip, or resolve the drift manually. Only takes effect when `patches` is set. Must be one of `fail` or `force`.",
+				MarkdownDescription: "What to do when the branch's remote tip has moved since it was last read, at the point of pushing the patch stack. `force` (the default) pushes anyway and throws the drift away. `fail` aborts the push rather than clobber changes nobody expected; re-run `terraform apply` to pick up the new tip, or go sort the drift out by hand. Only matters when `patches` is set. One of `fail` or `force`.",
 				Validators: []validator.String{
 					stringvalidator.OneOf("fail", "force"),
 				},

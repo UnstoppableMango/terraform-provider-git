@@ -92,11 +92,11 @@ func (d *gitPatchDataSource) Configure(_ context.Context, req datasource.Configu
 
 func (d *gitPatchDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Resolves a single patch: a local file, inline diff content, or a remote host source (e.g. a GitHub PR/commit or a GitLab MR/commit). Exactly one of `content`, `file`, `github`, or `gitlab` must be set. Does not clone, apply, commit, or push; that is `git_branch`'s responsibility.",
+		MarkdownDescription: "Resolves a single patch from a local file, inline diff content, or a host (a GitHub PR or commit, a GitLab MR or commit). Set exactly one of `content`, `file`, `github`, or `gitlab`. Nothing is cloned, applied, committed, or pushed here; that's `git_branch`'s job.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:            true,
-				MarkdownDescription: "Stable identifier for the patch: the hex-encoded sha256 of the resolved `diff`.",
+				MarkdownDescription: "Stable identifier for the patch: the hex-encoded sha256 of the `diff` it resolved to.",
 			},
 			"content": schema.StringAttribute{
 				Optional:            true,
@@ -104,15 +104,15 @@ func (d *gitPatchDataSource) Schema(_ context.Context, _ datasource.SchemaReques
 			},
 			"file": schema.StringAttribute{
 				Optional:            true,
-				MarkdownDescription: "Path to a local patch file, read on refresh.",
+				MarkdownDescription: "Path to a local patch file, re-read on every refresh.",
 			},
 			"diff": schema.StringAttribute{
 				Computed:            true,
-				MarkdownDescription: "Resolved unified diff content, from whichever of `content`, `file`, or `github` was set.",
+				MarkdownDescription: "The unified diff itself, from whichever of `content`, `file`, `github`, or `gitlab` was set.",
 			},
 			"github": schema.SingleNestedAttribute{
 				Optional:            true,
-				MarkdownDescription: "Resolves the patch from a GitHub pull request or commit. Exactly one of `pr` or `commit` must be set.",
+				MarkdownDescription: "Pulls the patch from a GitHub pull request or commit. Set exactly one of `pr` or `commit`.",
 				Attributes: map[string]schema.Attribute{
 					"repository": schema.StringAttribute{
 						Required:            true,
@@ -140,7 +140,7 @@ func (d *gitPatchDataSource) Schema(_ context.Context, _ datasource.SchemaReques
 			},
 			"gitlab": schema.SingleNestedAttribute{
 				Optional:            true,
-				MarkdownDescription: "Resolves the patch from a GitLab merge request or commit. Exactly one of `mr` or `commit` must be set.",
+				MarkdownDescription: "Pulls the patch from a GitLab merge request or commit. Set exactly one of `mr` or `commit`.",
 				Attributes: map[string]schema.Attribute{
 					"project": schema.StringAttribute{
 						Required:            true,
@@ -168,7 +168,7 @@ func (d *gitPatchDataSource) Schema(_ context.Context, _ datasource.SchemaReques
 			},
 			"auth": schema.SingleNestedAttribute{
 				Optional:            true,
-				MarkdownDescription: "Authentication details used to call the GitHub or GitLab API when `github` or `gitlab` is set.",
+				MarkdownDescription: "Credentials for calling the GitHub or GitLab API, used when `github` or `gitlab` is set.",
 				Attributes: map[string]schema.Attribute{
 					"token": schema.StringAttribute{
 						Optional:            true,

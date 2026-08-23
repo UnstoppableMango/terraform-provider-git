@@ -622,7 +622,7 @@ var _ = Describe("GitBranchResource", func() {
 				fake := &fakeGitClient{
 					lsRemoteFunc: func(ctx context.Context, url string, auth git.Auth) ([]git.Ref, error) {
 						// Remote is reachable, but the ref itself is gone
-						// (e.g. the branch was deleted) — this is the
+						// (e.g. the branch was deleted). This is the
 						// genuine "not found" condition that should be
 						// treated as a delete signal.
 						return []git.Ref{{Name: "refs/heads/other", Hash: newHash}}, nil

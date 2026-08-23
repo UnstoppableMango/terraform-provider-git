@@ -1,81 +1,87 @@
 # Design
 
-Details behind [GOALS.md](../GOALS.md).
+The details behind [GOALS.md](../GOALS.md).
 
 ## Terminology
 
-- **Tracked branch**: a branch whose tip commit Terraform observes and advances.
-- **Patch stack**: an ordered series of patches applied on top of a tracked branch's base ref, in the spirit of `quilt push` / `quilt pop`.
-- **Base ref**: the upstream commit a branch is tracking before any patches are applied.
-- **Resolved ref**: the commit produced after applying the full patch stack on top of the base ref.
+- **Tracked branch**: a branch whose tip Terraform watches and moves.
+- **Patch stack**: an ordered series of patches applied on top of a tracked branch's base ref, like `quilt push` / `quilt pop`.
+- **Base ref**: the upstream commit a branch tracks, before any patches.
+- **Resolved ref**: the commit you end up with once the whole stack has been applied.
 
 ## Resource model
 
-`git_repository` is a data source, not a resource: it references an existing repository and resolves connection details (URL, host type, auth) used by other resources, but has no lifecycle of its own. This provider never creates or deletes repositories on the host.
+`git_repository` is a data source, not a resource.
+It points at a repository that already exists and works out the connection details (URL, host type, auth) that other resources need, but it owns no lifecycle.
+Creating and deleting repositories on the host is somebody else's job.
 
-On top of it:
+Built on top of that:
 
-1. `git_branch` - a resource with an independent lifecycle. Tracks a branch within a `git_repository`: the base ref it follows, and the ordered list of patches that make up its stack.
-1. `git_patch` - like `git_repository`, a data source rather than a resource: it resolves the identity and content of a single patch (from a local file, inline diff content, or a remote source such as a GitHub commit/PR), with no lifecycle of its own. Resolving a patch's content is a read-only operation, separate from applying it; applying, committing, and pushing patches is `git_branch`'s responsibility, which references patches by ID from its ordered patch list.
+1. `git_branch` is a real resource with its own lifecycle. It tracks a branch inside a `git_repository`: the base ref it follows, plus the ordered patches that make up its stack.
+1. `git_patch` is another data source. It resolves what a single patch is and what's in it, from a local file, inline diff content, or a remote source such as a GitHub commit or PR. Reading a patch is deliberately separate from applying one: applying, committing, and pushing all belong to `git_branch`, which references patches by ID from its ordered list.
 
-Patch order is an explicit ordered list on `git_branch` (analogous to a quilt series file), not inferred from a dependency graph.
+Patch order comes from an explicit ordered list on `git_branch`, the equivalent of quilt's series file.
+Nothing is inferred from a dependency graph.
 
 ## Access backends
 
-Repository access is pluggable behind a common interface:
+Repository access sits behind a common interface, with more than one implementation.
 
-- **Local clone** (default): the provider clones/fetches the repository to a local workdir and operates on it with real git, then pushes results.
-- **Hosting API**: for hosts/operations better served by REST/GraphQL (e.g. GitHub, GitLab), the provider can act through their APIs instead of a local clone.
+- **Local clone** (default): clone or fetch the repository into a local workdir, do the work there with real git, push the result.
+- **Hosting API**: for hosts and operations where REST or GraphQL is a better fit (GitHub, GitLab), talk to the API instead of cloning.
 
-Which backend is used may vary per operation and per host; the goal is to pick whichever is correct and efficient for the operation, not to force one strategy everywhere.
+Which one gets used can vary per host and per operation.
+The point is to pick whatever is correct and cheap for the job at hand, not to commit to one strategy everywhere.
 
-The local clone backend's git implementation is itself pluggable behind a common interface, defaulting to go-git (pure Go, no external dependency) and overridable to shell out to the git binary where go-git's behavior isn't sufficient (e.g. certain `git apply`/`git am` edge cases, credential helpers).
+Inside the local clone backend, the git implementation is pluggable too.
+It defaults to go-git, which is pure Go and needs nothing installed, and can be switched to shell out to the git binary when go-git isn't enough (some `git apply` and `git am` edge cases, credential helpers).
 
 ## Auth
 
-Credentials can be supplied at the provider level (a default applied to all resources) and overridden per-resource, for configs that span multiple hosts or accounts.
-Initial hosts: GitHub and GitLab.
+Credentials can be set once at the provider level and overridden per resource, which is what you want for a config spanning several hosts or accounts.
+GitHub and GitLab first.
 
 ## Patch semantics
 
-Patches are applied as real commits on top of the tracked branch's base ref, not as uncommitted working-tree changes.
-Applying, reordering, or removing patches rewrites those commits, matching quilt's model of a mutable stack sitting on top of a stable base.
+Patches become real commits on top of the tracked branch's base ref, not uncommitted working-tree changes.
+Applying, reordering, or removing a patch rewrites those commits, the same way quilt treats the stack as mutable and the base as stable.
 
 ## Read behavior
 
-Read (refresh) actions update the ref recorded in state to reflect what's actually on the remote: the base ref for `git_branch`, and the resolved ref after the patch stack for the branch as a whole.
-This is how drift (someone pushing directly, force-pushing, etc.) becomes visible to `terraform plan`.
+Refresh updates the refs in state to whatever the remote actually has: the base ref for `git_branch`, and the resolved ref after the stack for the branch overall.
+That's what makes drift visible to `terraform plan` when someone pushes or force-pushes behind Terraform's back.
 
 ## Conflict handling
 
-When the patch stack no longer applies cleanly (base ref moved upstream, a patch conflicts), behavior is configurable per `git_branch`:
+When the stack stops applying cleanly, because the base ref moved upstream or a patch went stale, `git_branch` picks between two behaviors:
 
-- **Fail**: apply errors out with conflict details; the user resolves manually and retries.
-- **Force**: the provider resets the branch to the tracked base ref and reapplies the full patch stack from scratch, discarding drift, to guarantee the declared state wins.
+- **Fail**: error out with the conflict details and let the user sort it out.
+- **Force**: reset the branch to the tracked base ref and reapply the whole stack from scratch, throwing away drift so the declared state wins.
 
 ## Edge cases: remote changes between runs
 
-`git_branch` re-resolves both `base_ref` and the branch tip against the live remote on every `Read` (see Read behavior above), so the following situations need explicit handling, not just "whatever the diff shows":
+`git_branch` re-resolves both `base_ref` and the branch tip against the live remote on every `Read` (see Read behavior above), so each of these needs a deliberate answer rather than whatever the diff happens to show.
 
-- **`base_ref` moves upstream (fast-forward or history rewrite)**: `Read` picks up the new `base_sha` unconditionally. A fast-forward and a force-pushed rewrite of `base_ref` are currently indistinguishable to the provider; both just look like "the sha changed."
-- **`base_ref` deleted upstream, no patches configured**: treated as the resource itself being gone; state is removed silently, with no diagnostic surfaced explaining why.
-- **`base_ref` deleted upstream, patches configured**: cannot silently delete state (the tracked branch tip may still exist independent of `base_ref`), so this surfaces as a hard error instead of a warning or drift.
-- **Branch tip deleted upstream** (e.g. someone deletes the branch on the host): unconditionally treated as the resource being gone; state is removed and the next `apply` recreates the branch and re-pushes the patch stack, with no confirmation step.
-- **Branch tip changed upstream to something unrelated to the patch stack** (manual push, another tool, another Terraform run): `resolved_ref` reflects the real remote tip on `Read`. What this does to the plan, and whether `Update` corrects it back or force-pushes over it, needs verifying against the actual backend behavior (see Conflict handling above — this is exactly what "Force" mode should own).
-- **Concurrent force-push race**: `on_conflict = "fail"` closes this gap: `Update` passes the branch tip last observed on `Read` (`resolved_ref`) to the backend as a compare-and-swap guard on push (`--force-with-lease` / go-git's `ForceWithLease`), so a branch moved by another writer since `Read` aborts the push with a conflict error instead of being silently clobbered. `on_conflict = "force"` (the default) keeps the prior unconditional force-push behavior. The race window between the compare-and-swap check and the push itself is inherent to `--force-with-lease` and not fully eliminated, but it is far narrower than the previous no-check behavior.
-- **Auth revoked/expired between `Read` and `Update`**: never misclassified as a missing ref, so it cannot trigger state removal.
-  `Read` classifies by error *type*, not message text: the `refNotFoundError` that drives state removal is only constructed after `LsRemote` has already succeeded and the ref is genuinely absent from the returned ref list, so any `LsRemote` failure (auth, network, transport) surfaces as a diagnostic regardless of what it says.
-  This matters because a revoked GitHub token reports as `remote: Repository not found`, which reads exactly like a missing ref.
-  On the push side, the exec backend's lease-rejection heuristic matches git's client-side `! [rejected]` line (the `--force-with-lease` check failing) and deliberately not the server-side `! [remote rejected]` line, so a permission-denied or declined-hook push reports as an error rather than as a spurious compare-and-swap conflict telling the user to re-run apply.
+- **`base_ref` moves upstream (fast-forward or rewrite)**: `Read` takes the new `base_sha`, no questions asked. A fast-forward and a force-pushed rewrite look identical from here; both are just "the sha changed."
+- **`base_ref` deleted upstream, no patches configured**: read as the resource being gone. State is dropped silently, with no diagnostic explaining why.
+- **`base_ref` deleted upstream, patches configured**: dropping state silently isn't safe here, since the tracked branch tip can outlive `base_ref`, so this is a hard error rather than a warning or drift.
+- **Branch tip deleted upstream** (someone deleted the branch on the host): always read as the resource being gone. State is dropped, and the next `apply` recreates the branch and re-pushes the stack without asking first.
+- **Branch tip changed upstream to something unrelated to the stack** (a manual push, another tool, another Terraform run): `resolved_ref` picks up the real remote tip on `Read`. What that does to the plan, and whether `Update` corrects it or force-pushes over it, still needs checking against real backend behavior. This is exactly the case "Force" mode above is meant to own.
+- **Concurrent force-push race**: `on_conflict = "fail"` closes this one. `Update` hands the backend the tip it last saw on `Read` (`resolved_ref`) as a compare-and-swap guard on push (`--force-with-lease`, or go-git's `ForceWithLease`), so a branch that moved under you since `Read` aborts with a conflict instead of getting clobbered. `on_conflict = "force"` (the default) keeps pushing unconditionally. The gap between the check and the push is inherent to `--force-with-lease` and doesn't go away, but it's much narrower than not checking at all.
+- **Auth revoked or expired between `Read` and `Update`**: this must never look like a missing ref, or it would delete state.
+  `Read` classifies by error *type*, not by message text.
+  The `refNotFoundError` that triggers state removal is only built after `LsRemote` has already succeeded and the ref is genuinely missing from the list it returned, so any `LsRemote` failure at all (auth, network, transport) comes back as a diagnostic no matter what it says.
+  That distinction earns its keep: a revoked GitHub token reports `remote: Repository not found`, which reads exactly like a missing ref.
+  On the push side, the exec backend's lease-rejection check matches git's client-side `! [rejected]` line (the `--force-with-lease` check failing) and deliberately not the server-side `! [remote rejected]` line, so a permission denial or a declined hook surfaces as an error instead of a bogus compare-and-swap conflict telling the user to re-run apply.
 
 ## Push behavior
 
-After reconciling the patch stack, `git_branch` pushes the resulting branch to the remote.
-Because the stack is rewritten on each apply, this is a force-push.
+Once the stack is reconciled, `git_branch` pushes the branch to the remote.
+The stack gets rewritten on every apply, so that push is a force-push.
 
 ## Remote patch sources
 
-A `git_patch` sourced from a host uses a host-specific nested block rather than a generic URL string or flat type/ref attributes, e.g.:
+A `git_patch` from a host uses a host-specific nested block rather than a generic URL string or flat type/ref attributes:
 
 ```hcl
 data "git_patch" "example" {
@@ -95,13 +101,18 @@ data "git_patch" "example_gitlab" {
 }
 ```
 
-This keeps validation host-aware and type-safe, and lets each host expose its own optional fields (e.g. a GitLab MR needing different fields than a GitHub PR) without overloading a shared schema. Adding a new host means adding a new block type.
+Validation stays host-aware and type-safe this way, and each host can expose its own fields (a GitLab MR wants different ones than a GitHub PR) without cramming them into a shared schema.
+Supporting a new host means adding a new block type.
 
 ## Import behavior
 
-Import populates state with whatever is actually observed on the remote (base ref, resolved ref), without attempting to map existing commits to a patch stack. It does not fail or attempt to synthesize `git_patch` data sources for divergent commits.
-The user's config declares the intended patch stack; the following `terraform plan` shows the normal divergence between observed and declared state, reconciled on the next apply like any other drift. This matches standard Terraform import semantics: import populates state, config decides the target.
+Import writes down what the remote actually shows, the base ref and resolved ref, and makes no attempt to reverse-engineer a patch stack from the existing commits.
+It doesn't fail on divergent commits, and it doesn't invent `git_patch` data sources for them.
+Your config is what declares the intended stack, so the `terraform plan` right after an import shows the usual gap between observed and declared state, and the next apply reconciles it like any other drift.
+That's the normal Terraform bargain: import fills in state, config decides the target.
 
 ## Workdir lifecycle
 
-Local-clone workdirs are ephemeral: a fresh clone into a temp directory per apply/read, discarded afterward. No persisted workdir, no reuse-across-runs cache, no cleanup or concurrent-run collision logic. Simpler and avoids stale-state bugs, at the cost of re-cloning on every run.
+Local-clone workdirs are throwaway: a fresh clone into a temp directory per apply or read, deleted afterward.
+Nothing persists, nothing is reused between runs, and there's no cache to invalidate or concurrent-run collision to reason about.
+The cost is re-cloning every run; the payoff is no stale-state bugs.

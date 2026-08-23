@@ -93,7 +93,7 @@ type Client interface {
 	ApplyPatches(ctx context.Context, req ApplyPatchesRequest) (ApplyPatchesResult, error)
 
 	// IsAncestor reports whether ancestor is an ancestor of (or equal to)
-	// descendant in url's history. A false, nil result means "no" — either
+	// descendant in url's history. A false, nil result means "no": either
 	// genuinely not an ancestor, or ancestor could no longer be found in
 	// url's history even after a full fetch (rewritten away / garbage
 	// collected), which for this provider's purposes is the same

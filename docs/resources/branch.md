@@ -3,21 +3,21 @@
 page_title: "git_branch Resource - terraform-provider-git"
 subcategory: ""
 description: |-
-  Tracks a branch's base ref within a repository, and optionally an ordered patch stack applied on top of it. When patches is set, the resulting commits are force-pushed to the branch on the remote; otherwise this resource only resolves and tracks the observed base ref.
+  Tracks a branch's base ref inside a repository, plus an optional ordered patch stack applied on top of it. With patches set, the resulting commits get force-pushed to the branch on the remote. Without it, this resource only resolves and tracks the base ref it observes.
 ---
 
 # git_branch (Resource)
 
-Tracks a branch's base ref within a repository, and optionally an ordered patch stack applied on top of it. When `patches` is set, the resulting commits are force-pushed to the branch on the remote; otherwise this resource only resolves and tracks the observed base ref.
+Tracks a branch's base ref inside a repository, plus an optional ordered patch stack applied on top of it. With `patches` set, the resulting commits get force-pushed to the branch on the remote. Without it, this resource only resolves and tracks the base ref it observes.
 
 ## Example Usage
 
 ```terraform
-# Omits the required_providers block since this example also runs as an
-# acceptance test against an in-process build; see examples/provider/provider.tf.
+# No required_providers block here: this example doubles as an acceptance test
+# against an in-process build. See examples/provider/provider.tf for one.
 
-# Tracks the "main" branch of a public repository. Safe to run against a
-# repository you don't own; git_branch never pushes.
+# Tracks the "main" branch of a public repository. Safe against a repository you
+# don't own: with no patches set, git_branch never pushes.
 resource "git_branch" "main" {
   repository = {
     url  = "https://github.com/UnstoppableMango/terraform-provider-git.git"
@@ -44,14 +44,14 @@ output "resolved_sha" {
 
 ### Optional
 
-- `on_conflict` (String) How to handle the branch's remote tip having moved since it was last observed, when pushing the patch stack. `force` (default) always force-pushes, discarding drift, matching this provider's historical behavior. `fail` aborts the push instead of clobbering unexpected remote changes; re-run `terraform apply` to pick up the new tip, or resolve the drift manually. Only takes effect when `patches` is set. Must be one of `fail` or `force`.
-- `patches` (List of String) Ordered list of patch diffs applied on top of base_ref, in the spirit of quilt push. When set, the resulting commits are force-pushed to the branch on the remote.
+- `on_conflict` (String) What to do when the branch's remote tip has moved since it was last read, at the point of pushing the patch stack. `force` (the default) pushes anyway and throws the drift away. `fail` aborts the push rather than clobber changes nobody expected; re-run `terraform apply` to pick up the new tip, or go sort the drift out by hand. Only matters when `patches` is set. One of `fail` or `force`.
+- `patches` (List of String) Ordered list of patch diffs to apply on top of `base_ref`, the way `quilt push` would. When set, the resulting commits are force-pushed to the branch on the remote.
 
 ### Read-Only
 
-- `base_sha` (String) Resolved commit hash of `base_ref` as of the last read.
-- `id` (String) Identifier for the branch. Combines the repository URL and branch name as `<url>#<name>`.
-- `resolved_ref` (String) Resolved commit hash the branch currently tracks.
+- `base_sha` (String) Commit `base_ref` pointed at as of the last read.
+- `id` (String) Identifier for the branch: the repository URL and branch name joined as `<url>#<name>`.
+- `resolved_ref` (String) Commit the branch currently tracks, once the patch stack has been applied.
 
 <a id="nestedatt--repository"></a>
 ### Nested Schema for `repository`

@@ -3,20 +3,20 @@
 page_title: "git_patch Data Source - terraform-provider-git"
 subcategory: ""
 description: |-
-  Resolves a single patch: a local file, inline diff content, or a remote host source (e.g. a GitHub PR/commit or a GitLab MR/commit). Exactly one of content, file, github, or gitlab must be set. Does not clone, apply, commit, or push; that is git_branch's responsibility.
+  Resolves a single patch from a local file, inline diff content, or a host (a GitHub PR or commit, a GitLab MR or commit). Set exactly one of content, file, github, or gitlab. Nothing is cloned, applied, committed, or pushed here; that's git_branch's job.
 ---
 
 # git_patch (Data Source)
 
-Resolves a single patch: a local file, inline diff content, or a remote host source (e.g. a GitHub PR/commit or a GitLab MR/commit). Exactly one of `content`, `file`, `github`, or `gitlab` must be set. Does not clone, apply, commit, or push; that is `git_branch`'s responsibility.
+Resolves a single patch from a local file, inline diff content, or a host (a GitHub PR or commit, a GitLab MR or commit). Set exactly one of `content`, `file`, `github`, or `gitlab`. Nothing is cloned, applied, committed, or pushed here; that's `git_branch`'s job.
 
 ## Example Usage
 
 ```terraform
-# Omits the required_providers block since this example also runs as an
-# acceptance test against an in-process build; see examples/provider/provider.tf.
+# No required_providers block here: this example doubles as an acceptance test
+# against an in-process build. See examples/provider/provider.tf for one.
 
-# Resolves a patch from an inline unified diff.
+# From an inline unified diff.
 data "git_patch" "from_content" {
   content = <<-EOT
     diff --git a/example.txt b/example.txt
@@ -29,13 +29,13 @@ data "git_patch" "from_content" {
   EOT
 }
 
-# Resolves a patch from a local file. abspath() ensures the path resolves
-# correctly regardless of the provider process's working directory.
+# From a local file. abspath() keeps the path correct no matter what working
+# directory the provider process happens to be in.
 data "git_patch" "from_file" {
   file = abspath("${path.module}/sample.patch")
 }
 
-# Resolves a patch from a commit on a public GitHub repository.
+# From a commit on a public GitHub repository.
 data "git_patch" "from_github" {
   github = {
     repository = "UnstoppableMango/terraform-provider-git"
@@ -43,9 +43,9 @@ data "git_patch" "from_github" {
   }
 }
 
-# Resolves a patch from a commit on a public GitLab project. gitlab-org/
-# gitlab-test is GitLab's own stable fixture project, kept around
-# specifically for use in tests and examples like this one.
+# From a commit on a public GitLab project. gitlab-org/gitlab-test is GitLab's
+# own fixture project, which exists precisely so tests and examples like this
+# one have something stable to point at.
 data "git_patch" "from_gitlab" {
   gitlab = {
     project = "gitlab-org/gitlab-test"
@@ -75,16 +75,16 @@ output "gitlab_patch_diff" {
 
 ### Optional
 
-- `auth` (Attributes) Authentication details used to call the GitHub or GitLab API when `github` or `gitlab` is set. (see [below for nested schema](#nestedatt--auth))
+- `auth` (Attributes) Credentials for calling the GitHub or GitLab API, used when `github` or `gitlab` is set. (see [below for nested schema](#nestedatt--auth))
 - `content` (String) Inline unified diff content.
-- `file` (String) Path to a local patch file, read on refresh.
-- `github` (Attributes) Resolves the patch from a GitHub pull request or commit. Exactly one of `pr` or `commit` must be set. (see [below for nested schema](#nestedatt--github))
-- `gitlab` (Attributes) Resolves the patch from a GitLab merge request or commit. Exactly one of `mr` or `commit` must be set. (see [below for nested schema](#nestedatt--gitlab))
+- `file` (String) Path to a local patch file, re-read on every refresh.
+- `github` (Attributes) Pulls the patch from a GitHub pull request or commit. Set exactly one of `pr` or `commit`. (see [below for nested schema](#nestedatt--github))
+- `gitlab` (Attributes) Pulls the patch from a GitLab merge request or commit. Set exactly one of `mr` or `commit`. (see [below for nested schema](#nestedatt--gitlab))
 
 ### Read-Only
 
-- `diff` (String) Resolved unified diff content, from whichever of `content`, `file`, or `github` was set.
-- `id` (String) Stable identifier for the patch: the hex-encoded sha256 of the resolved `diff`.
+- `diff` (String) The unified diff itself, from whichever of `content`, `file`, `github`, or `gitlab` was set.
+- `id` (String) Stable identifier for the patch: the hex-encoded sha256 of the `diff` it resolved to.
 
 <a id="nestedatt--auth"></a>
 ### Nested Schema for `auth`

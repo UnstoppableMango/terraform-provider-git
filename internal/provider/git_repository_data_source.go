@@ -100,11 +100,11 @@ func (d *gitRepositoryDataSource) verifyReachable(ctx context.Context, url strin
 
 func (d *gitRepositoryDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "References an existing repository. Reference-only: this provider never creates or deletes repositories on the host. It resolves connection details (URL, host type, auth) used by other resources.",
+		MarkdownDescription: "Points at a repository that already exists and works out the connection details (URL, host type, auth) other resources need. Read-only by design: this provider never creates or deletes repositories on the host.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:            true,
-				MarkdownDescription: "Identifier for the repository. Mirrors the `url` attribute.",
+				MarkdownDescription: "Identifier for the repository, which is just the `url` again.",
 			},
 			"url": schema.StringAttribute{
 				Required:            true,
