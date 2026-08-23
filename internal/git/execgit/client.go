@@ -235,7 +235,19 @@ func runMergeBaseIsAncestor(ctx context.Context, gitPath, dir string, env []stri
 // push failure (network, auth, transport).
 func isLeaseRejection(err error) bool {
 	msg := err.Error()
-	return strings.Contains(msg, "stale info") || strings.Contains(msg, "rejected")
+	if strings.Contains(msg, "stale info") {
+		return true
+	}
+
+	// Client-side "! [rejected]" lines come from git itself refusing the
+	// update; this is only consulted for a --force-with-lease push, so that
+	// refusal is the lease check. Server-side "! [remote rejected]" lines
+	// (permission denied, pre-receive hook declined, protected branch) are
+	// auth/policy failures and must surface as real errors, not as a
+	// compare-and-swap conflict: re-running apply cannot fix them. The two
+	// are told apart by the bracketed text, so a bare "rejected" match is
+	// not safe here.
+	return strings.Contains(msg, "[rejected]")
 }
 
 // runGit runs git with the given args in dir (the process's own working

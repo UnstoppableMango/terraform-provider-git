@@ -722,6 +722,70 @@ var _ = Describe("GitBranchResource", func() {
 			})
 		})
 
+		// DESIGN.md's "Auth revoked/expired between Read and Update" edge
+		// case: an auth failure must not be mistaken for the ref being gone,
+		// which would silently remove the resource from state. The
+		// classification is by error type (refNotFoundError is only built
+		// after LsRemote succeeds), never by matching the message text, and
+		// these two specs pin that down using a message that reads exactly
+		// like a missing ref.
+		Context("when listing remote refs fails with an auth error whose message reads like a missing ref", func() {
+			// What GitHub returns for a revoked or expired token: it masks a
+			// 403 as a 404, so the text says "not found" while the ref itself
+			// is fine.
+			revokedTokenErr := func(url string) error {
+				return fmt.Errorf(
+					"ls-remote %s: exit status 128: remote: Repository not found. fatal: repository %q not found",
+					url, url,
+				)
+			}
+
+			It("adds an error diagnostic and does not remove the resource from state", func() {
+				fake := &fakeGitClient{
+					lsRemoteFunc: func(ctx context.Context, url string, auth git.Auth) ([]git.Ref, error) {
+						return nil, revokedTokenErr(url)
+					},
+				}
+				branchR := newBranchResourceWithClient(fake)
+				s := branchResourceSchema(branchR)
+
+				initial := buildBranchState(s, stateModel(oldHash))
+				req := resource.ReadRequest{State: initial}
+				resp := &resource.ReadResponse{State: tfsdk.State{Schema: s, Raw: initial.Raw}}
+
+				branchR.Read(context.Background(), req, resp)
+
+				Expect(resp.Diagnostics.HasError()).To(BeTrue())
+				Expect(resp.Diagnostics.Errors()[0].Summary()).To(Equal("Unable to Read Branch"))
+				Expect(resp.Diagnostics.WarningsCount()).To(Equal(0))
+				Expect(resp.State.Raw.IsNull()).To(BeFalse())
+			})
+
+			It("does not remove the resource from state when patches are configured either", func() {
+				// With patches set, a genuinely missing branch tip is the one
+				// unconditional delete signal Read has; this covers that path
+				// too, not just the no-patches base_ref path above.
+				fake := &fakeGitClient{
+					lsRemoteFunc: func(ctx context.Context, url string, auth git.Auth) ([]git.Ref, error) {
+						return nil, revokedTokenErr(url)
+					},
+				}
+				branchR := newBranchResourceWithClient(fake)
+				s := branchResourceSchema(branchR)
+
+				initial := buildBranchState(s, stateModelWithPatches(oldHash, []string{"diff --git a b"}))
+				req := resource.ReadRequest{State: initial}
+				resp := &resource.ReadResponse{State: tfsdk.State{Schema: s, Raw: initial.Raw}}
+
+				branchR.Read(context.Background(), req, resp)
+
+				Expect(resp.Diagnostics.HasError()).To(BeTrue())
+				Expect(resp.Diagnostics.Errors()[0].Summary()).To(Equal("Unable to Read Branch"))
+				Expect(resp.Diagnostics.WarningsCount()).To(Equal(0))
+				Expect(resp.State.Raw.IsNull()).To(BeFalse())
+			})
+		})
+
 		Context("when patches are set in state", func() {
 			It("never calls ApplyPatches and refreshes resolved_ref from the branch's current tip on the remote", func() {
 				fake := &fakeGitClient{
