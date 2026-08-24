@@ -3,12 +3,12 @@
 page_title: "git_branch Resource - terraform-provider-git"
 subcategory: ""
 description: |-
-  Tracks a branch's base ref within a repository, and optionally an ordered patch stack applied on top of it. When patches is set, the resulting commits are force-pushed to the branch on the remote; otherwise this resource only resolves and tracks the observed base ref.
+  Tracks a branch's base ref within a repository, and optionally an ordered patch stack applied on top of it. When patches is set, the resulting commits are force-pushed to the branch on the remote; otherwise this resource only resolves and tracks the observed base ref. Destroying this resource is a no-op: it does not own branch existence on the remote, so terraform destroy only removes it from Terraform state and leaves the branch and any pushed patches in place.
 ---
 
 # git_branch (Resource)
 
-Tracks a branch's base ref within a repository, and optionally an ordered patch stack applied on top of it. When `patches` is set, the resulting commits are force-pushed to the branch on the remote; otherwise this resource only resolves and tracks the observed base ref.
+Tracks a branch's base ref within a repository, and optionally an ordered patch stack applied on top of it. When `patches` is set, the resulting commits are force-pushed to the branch on the remote; otherwise this resource only resolves and tracks the observed base ref. Destroying this resource is a no-op: it does not own branch existence on the remote, so `terraform destroy` only removes it from Terraform state and leaves the branch and any pushed patches in place.
 
 ## Example Usage
 
@@ -71,3 +71,14 @@ Optional:
 Optional:
 
 - `token` (String, Sensitive) Token used to authenticate with the repository host.
+
+## Import
+
+Import is supported using the following syntax:
+
+The [`terraform import` command](https://developer.hashicorp.com/terraform/cli/commands/import) can be used, for example:
+
+```shell
+# Import format: <repository url>#<branch name>
+terraform import git_branch.example "https://github.com/org/repo.git#main"
+```

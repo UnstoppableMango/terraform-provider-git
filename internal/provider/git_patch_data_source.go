@@ -10,6 +10,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/datasourcevalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -131,6 +132,12 @@ func (d *gitPatchDataSource) Schema(_ context.Context, _ datasource.SchemaReques
 					"commit": schema.StringAttribute{
 						Optional:            true,
 						MarkdownDescription: "Commit sha to resolve the patch from.",
+						Validators: []validator.String{
+							stringvalidator.ExactlyOneOf(
+								path.MatchRelative().AtParent().AtName("pr"),
+								path.MatchRelative().AtParent().AtName("commit"),
+							),
+						},
 					},
 					"sha": schema.StringAttribute{
 						Computed:            true,
@@ -159,6 +166,12 @@ func (d *gitPatchDataSource) Schema(_ context.Context, _ datasource.SchemaReques
 					"commit": schema.StringAttribute{
 						Optional:            true,
 						MarkdownDescription: "Commit sha to resolve the patch from.",
+						Validators: []validator.String{
+							stringvalidator.ExactlyOneOf(
+								path.MatchRelative().AtParent().AtName("mr"),
+								path.MatchRelative().AtParent().AtName("commit"),
+							),
+						},
 					},
 					"sha": schema.StringAttribute{
 						Computed:            true,
@@ -166,17 +179,7 @@ func (d *gitPatchDataSource) Schema(_ context.Context, _ datasource.SchemaReques
 					},
 				},
 			},
-			"auth": schema.SingleNestedAttribute{
-				Optional:            true,
-				MarkdownDescription: "Authentication details used to call the GitHub or GitLab API when `github` or `gitlab` is set.",
-				Attributes: map[string]schema.Attribute{
-					"token": schema.StringAttribute{
-						Optional:            true,
-						Sensitive:           true,
-						MarkdownDescription: "Token used to authenticate with the GitHub or GitLab API.",
-					},
-				},
-			},
+			"auth": authSchemaAttribute("Authentication details used to call the GitHub or GitLab API when `github` or `gitlab` is set."),
 		},
 	}
 }

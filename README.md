@@ -23,7 +23,6 @@ Implemented so far:
 - `git_branch` (resource): tracks a branch against a `base_ref`, applies an ordered `patches` stack on top of it, and force-pushes the result.
 - `git_patch` (data source): resolves a unified diff and content-addressed ID from inline content, a local file, a GitHub PR/commit, or a GitLab MR/commit.
 
-Not yet implemented: generated Registry docs.
 See [AGENTS.md](AGENTS.md#current-state-vs-design) for the up-to-date breakdown and [docs/DESIGN.md](docs/DESIGN.md) for the full resource model.
 
 ## Usage

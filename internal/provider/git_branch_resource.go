@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -24,6 +25,11 @@ import (
 var _ resource.Resource = &gitBranchResource{}
 var _ resource.ResourceWithConfigure = &gitBranchResource{}
 var _ resource.ResourceWithImportState = &gitBranchResource{}
+
+// onConflictForce is on_conflict's default and force-push value, shared by
+// the schema default, Create's explicit Config fallback, and ImportState so
+// the three can't drift from each other.
+const onConflictForce = "force"
 
 // gitBranchResource tracks a branch within a repository: the base ref it
 // follows, and the ordered patch stack applied on top of it. When patches
@@ -148,7 +154,7 @@ func resolveBranchRef(ctx context.Context, client git.Client, url string, auth g
 
 func (r *gitBranchResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Tracks a branch's base ref within a repository, and optionally an ordered patch stack applied on top of it. When `patches` is set, the resulting commits are force-pushed to the branch on the remote; otherwise this resource only resolves and tracks the observed base ref.",
+		MarkdownDescription: "Tracks a branch's base ref within a repository, and optionally an ordered patch stack applied on top of it. When `patches` is set, the resulting commits are force-pushed to the branch on the remote; otherwise this resource only resolves and tracks the observed base ref. Destroying this resource is a no-op: it does not own branch existence on the remote, so `terraform destroy` only removes it from Terraform state and leaves the branch and any pushed patches in place.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:            true,
@@ -213,11 +219,14 @@ func (r *gitBranchResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 				ElementType:         types.StringType,
 				Optional:            true,
 				MarkdownDescription: "Ordered list of patch diffs applied on top of base_ref, in the spirit of quilt push. When set, the resulting commits are force-pushed to the branch on the remote.",
+				Validators: []validator.List{
+					listvalidator.ValueStringsAre(stringvalidator.LengthAtLeast(1)),
+				},
 			},
 			"on_conflict": schema.StringAttribute{
 				Optional:            true,
 				Computed:            true,
-				Default:             stringdefault.StaticString("force"),
+				Default:             stringdefault.StaticString(onConflictForce),
 				MarkdownDescription: "How to handle the branch's remote tip having moved since it was last observed, when pushing the patch stack. `force` (default) always force-pushes, discarding drift, matching this provider's historical behavior. `fail` aborts the push instead of clobbering unexpected remote changes; re-run `terraform apply` to pick up the new tip, or resolve the drift manually. Only takes effect when `patches` is set. Must be one of `fail` or `force`.",
 				Validators: []validator.String{
 					stringvalidator.OneOf("fail", "force"),
@@ -344,7 +353,7 @@ func (r *gitBranchResource) Create(ctx context.Context, req resource.CreateReque
 	// isn't applied yet when the attribute is omitted; apply it explicitly
 	// so the state this method writes matches what was planned.
 	if model.OnConflict.IsNull() {
-		model.OnConflict = types.StringValue("force")
+		model.OnConflict = types.StringValue(onConflictForce)
 	}
 
 	if err := r.resolveModel(ctx, &model, true, ""); err != nil {
@@ -514,7 +523,7 @@ func (r *gitBranchResource) ImportState(ctx context.Context, req resource.Import
 		BaseSha:     types.StringValue(hash),
 		ResolvedRef: types.StringValue(hash),
 		Patches:     types.ListNull(types.StringType),
-		OnConflict:  types.StringValue("force"),
+		OnConflict:  types.StringValue(onConflictForce),
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &model)...)
