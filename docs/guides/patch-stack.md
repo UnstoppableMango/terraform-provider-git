@@ -1,10 +1,13 @@
-______________________________________________________________________
-
-## page_title: "Patch Stacks" subcategory: "" description: |- How git_branch's patch stack model works, and how to handle conflicts with on_conflict.
+---
+page_title: "Patch Stacks"
+subcategory: ""
+description: |-
+  How git_branch's patch stack model works, and how to handle conflicts with on_conflict.
+---
 
 # Patch Stacks
 
-`git_branch` can track more than a branch's base ref: setting `patches` declares an ordered stack of diffs applied on top of that base ref, in the spirit of [quilt](<https://en.wikipedia.org/wiki/Quilt_(software)>)'s `quilt push`.
+`git_branch` can track more than a branch's base ref: setting `patches` declares an ordered stack of diffs applied on top of that base ref, in the spirit of [quilt](https://en.wikipedia.org/wiki/Quilt_(software))'s `quilt push`.
 
 ## The model
 
