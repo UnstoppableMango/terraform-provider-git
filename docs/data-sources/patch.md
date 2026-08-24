@@ -91,7 +91,7 @@ output "gitlab_patch_diff" {
 
 Optional:
 
-- `token` (String, Sensitive) Token used to authenticate with the GitHub or GitLab API.
+- `token` (String, Sensitive) Token used to authenticate with the repository host.
 
 
 <a id="nestedatt--github"></a>

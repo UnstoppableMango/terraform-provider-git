@@ -75,6 +75,7 @@
             "docs/index.md"
             "docs/data-sources/**"
             "docs/resources/**"
+            "docs/guides/**"
           ];
         };
     };

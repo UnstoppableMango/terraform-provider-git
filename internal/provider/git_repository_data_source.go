@@ -117,17 +117,7 @@ func (d *gitRepositoryDataSource) Schema(_ context.Context, _ datasource.SchemaR
 					stringvalidator.OneOf("github", "gitlab", "generic"),
 				},
 			},
-			"auth": schema.SingleNestedAttribute{
-				Optional:            true,
-				MarkdownDescription: "Authentication details used to connect to the repository.",
-				Attributes: map[string]schema.Attribute{
-					"token": schema.StringAttribute{
-						Optional:            true,
-						Sensitive:           true,
-						MarkdownDescription: "Token used to authenticate with the repository host.",
-					},
-				},
-			},
+			"auth": authSchemaAttribute("Authentication details used to connect to the repository."),
 		},
 	}
 }
