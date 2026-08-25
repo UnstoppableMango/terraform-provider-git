@@ -22,6 +22,12 @@ import (
 // exception and is loaded via Config instead (see TestAccExampleGitHubFull).
 
 func TestAccExampleGitRepository(t *testing.T) {
+	// The example's `local = {}` block discovers the repository containing
+	// the test's working directory, so it needs this source tree to be a real
+	// checkout with an origin remote. A source tarball or a clone with a
+	// differently named remote has nothing to discover.
+	requireOriginRemote(t)
+
 	tfresource.Test(t, tfresource.TestCase{
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []tfresource.TestStep{

@@ -44,9 +44,10 @@ type gitBranchResource struct {
 // model. Shaped like gitRepositoryDataSourceModel (minus id) so it can be
 // populated wholesale from a git_repository data source.
 type gitBranchRepositoryModel struct {
-	Url  types.String            `tfsdk:"url"`
-	Host types.String            `tfsdk:"host"`
-	Auth *gitRepositoryAuthModel `tfsdk:"auth"`
+	Url     types.String            `tfsdk:"url"`
+	Host    types.String            `tfsdk:"host"`
+	Auth    *gitRepositoryAuthModel `tfsdk:"auth"`
+	HeadRef types.String            `tfsdk:"head_ref"`
 }
 
 // gitBranchResourceModel describes the resource's data model.
@@ -188,6 +189,10 @@ func (r *gitBranchResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 								MarkdownDescription: "Token used to authenticate with the repository host.",
 							},
 						},
+					},
+					"head_ref": schema.StringAttribute{
+						Optional:            true,
+						MarkdownDescription: "Branch currently checked out in the working copy this configuration runs from. Set it from `data.git_repository.<name>.local.head_ref` to be warned when applying this resource would rewrite the branch Terraform is running from. Purely advisory: it never changes which branch is pushed.",
 					},
 				},
 			},
@@ -341,6 +346,32 @@ func (r *gitBranchResource) checkBaseRefAncestry(ctx context.Context, oldBaseSha
 	}
 }
 
+// checkSelfWrite warns when applying model would force-push over the branch
+// the Terraform run is itself checked out on, which is only detectable when
+// the config wired repository.head_ref up to a discovered repository. Without
+// patches nothing is pushed, so there is nothing to warn about.
+//
+// Create and Update call this; Read deliberately does not, since it pushes
+// nothing and the warning would repeat on every refresh.
+func checkSelfWrite(model *gitBranchResourceModel, diags *diag.Diagnostics) {
+	headRef := model.Repository.HeadRef.ValueString()
+	if headRef == "" || headRef != model.Name.ValueString() {
+		return
+	}
+	if model.Patches.IsNull() || model.Patches.IsUnknown() || len(model.Patches.Elements()) == 0 {
+		return
+	}
+
+	diags.AddWarning(
+		"Branch Is the One This Configuration Runs From",
+		fmt.Sprintf(
+			"Branch %q is checked out in the working copy this Terraform run is executing from, and this resource force-pushes its patch stack to it. "+
+				"The local checkout will be behind the remote once the apply finishes, and any CI triggered by pushes to %q will run again on the result.",
+			headRef, headRef,
+		),
+	)
+}
+
 func (r *gitBranchResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var model gitBranchResourceModel
 
@@ -355,6 +386,8 @@ func (r *gitBranchResource) Create(ctx context.Context, req resource.CreateReque
 	if model.OnConflict.IsNull() {
 		model.OnConflict = types.StringValue(onConflictForce)
 	}
+
+	checkSelfWrite(&model, &resp.Diagnostics)
 
 	if err := r.resolveModel(ctx, &model, true, ""); err != nil {
 		var pe *patchesError
@@ -463,6 +496,8 @@ func (r *gitBranchResource) Update(ctx context.Context, req resource.UpdateReque
 	oldBaseSha := priorState.BaseSha.ValueString()
 	expectedTip := priorState.ResolvedRef.ValueString()
 
+	checkSelfWrite(&model, &resp.Diagnostics)
+
 	if err := r.resolveModel(ctx, &model, true, expectedTip); err != nil {
 		var pe *patchesError
 		if errors.As(err, &pe) {
@@ -517,7 +552,7 @@ func (r *gitBranchResource) ImportState(ctx context.Context, req resource.Import
 
 	model := gitBranchResourceModel{
 		Id:          types.StringValue(url + "#" + name),
-		Repository:  gitBranchRepositoryModel{Url: types.StringValue(url), Host: types.StringNull(), Auth: nil},
+		Repository:  gitBranchRepositoryModel{Url: types.StringValue(url), Host: types.StringNull(), Auth: nil, HeadRef: types.StringNull()},
 		Name:        types.StringValue(name),
 		BaseRef:     types.StringValue(name),
 		BaseSha:     types.StringValue(hash),
