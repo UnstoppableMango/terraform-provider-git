@@ -5,6 +5,7 @@ package git
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 // Auth carries authentication details used to connect to a remote
@@ -23,6 +24,88 @@ func Username(host string) string {
 		return "oauth2"
 	default:
 		return "x-access-token"
+	}
+}
+
+// NormalizeURL rewrites an SSH remote URL to its https equivalent, covering
+// both the scp-like form (git@host:owner/repo.git) and ssh://git@host/owner/
+// repo.git. The bool reports whether url was rewritten; any other URL is
+// returned unchanged.
+//
+// Callers use this for URLs read out of a local repository's config, where an
+// SSH remote is the norm but token auth needs https.
+func NormalizeURL(url string) (string, bool) {
+	if rest, ok := strings.CutPrefix(url, "ssh://"); ok {
+		// Strip any user@ prefix, then a :port if present: neither carries
+		// over to https.
+		if _, after, found := strings.Cut(rest, "@"); found {
+			rest = after
+		}
+
+		host, path, found := strings.Cut(rest, "/")
+		if !found {
+			return url, false
+		}
+		if h, _, hasPort := strings.Cut(host, ":"); hasPort {
+			host = h
+		}
+
+		return "https://" + host + "/" + path, true
+	}
+
+	if strings.Contains(url, "://") {
+		return url, false
+	}
+
+	// scp-like syntax: [user@]host:path, where path is never absolute (that
+	// would make it a local path with a colon in it, not a remote).
+	hostPart, path, found := strings.Cut(url, ":")
+	if !found || path == "" || strings.HasPrefix(path, "/") {
+		return url, false
+	}
+
+	host := hostPart
+	if _, after, hasUser := strings.Cut(hostPart, "@"); hasUser {
+		host = after
+	}
+	if host == "" || strings.Contains(host, "/") {
+		return url, false
+	}
+
+	return "https://" + host + "/" + path, true
+}
+
+// HostFromURL maps a repository URL's hostname to one of the host types the
+// provider knows about: "github", "gitlab", or "generic". Hostnames beginning
+// with "github." or "gitlab." are treated as self-hosted instances of those
+// products. Anything unrecognized, including a URL this can't parse, is
+// "generic".
+func HostFromURL(url string) string {
+	normalized, _ := NormalizeURL(url)
+
+	rest, ok := strings.CutPrefix(normalized, "https://")
+	if !ok {
+		if rest, ok = strings.CutPrefix(normalized, "http://"); !ok {
+			return "generic"
+		}
+	}
+
+	host, _, _ := strings.Cut(rest, "/")
+	if _, after, found := strings.Cut(host, "@"); found {
+		host = after
+	}
+	if h, _, found := strings.Cut(host, ":"); found {
+		host = h
+	}
+	host = strings.ToLower(host)
+
+	switch {
+	case host == "github.com" || strings.HasPrefix(host, "github."):
+		return "github"
+	case host == "gitlab.com" || strings.HasPrefix(host, "gitlab."):
+		return "gitlab"
+	default:
+		return "generic"
 	}
 }
 

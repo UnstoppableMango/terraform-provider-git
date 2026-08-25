@@ -8,7 +8,11 @@ import (
 	"path/filepath"
 	"testing"
 
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+
 	"github.com/UnstoppableMango/terraform-provider-git/internal/git/github"
+	"github.com/UnstoppableMango/terraform-provider-git/internal/git/local"
 )
 
 // newTestRepo creates a temporary, non-bare git repository with a single
@@ -52,6 +56,41 @@ func newTestRepo(t *testing.T) string {
 	runGit(dir, "commit", "-m", "initial commit")
 
 	return dir
+}
+
+// newGinkgoRepo creates a temporary git repository with a single commit and an
+// "origin" remote pointing at url, returning its path. It is the Ginkgo
+// counterpart of newTestRepo, for specs that need a real checkout to discover
+// but have no *testing.T to hang cleanup off.
+func newGinkgoRepo(url string) string {
+	GinkgoHelper()
+
+	dir := GinkgoT().TempDir()
+
+	runGit(dir, "init")
+	runGit(dir, "config", "user.name", "Test User")
+	runGit(dir, "config", "user.email", "test@example.com")
+	runGit(dir, "config", "commit.gpgsign", "false")
+	runGit(dir, "remote", "add", "origin", url)
+
+	readmePath := filepath.Join(dir, "README.md")
+	Expect(os.WriteFile(readmePath, []byte("test\n"), 0o644)).To(Succeed())
+
+	runGit(dir, "add", "README.md")
+	runGit(dir, "commit", "-m", "initial commit")
+
+	return dir
+}
+
+// requireOriginRemote skips the calling test unless the working directory is
+// inside a git checkout that has an "origin" remote, which is what the
+// git_repository example's local discovery block needs to resolve.
+func requireOriginRemote(t *testing.T) {
+	t.Helper()
+
+	if _, err := local.Discover(".", ""); err != nil {
+		t.Skipf("skipping: no discoverable repository with an origin remote here: %v", err)
+	}
 }
 
 func runGit(dir string, args ...string) {

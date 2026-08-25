@@ -20,6 +20,21 @@ On top of it:
 
 Patch order is an explicit ordered list on `git_branch` (analogous to a quilt series file), not inferred from a dependency graph.
 
+## Current repository
+
+`git_repository` names a repository either literally (`url`) or by discovering it from a checkout on the local filesystem (`local`), so a configuration stored inside the repository it manages does not have to hardcode its own URL. Exactly one of the two is set.
+
+Discovery walks up from `local.path` (defaulting to the directory Terraform was invoked from) until a repository is found, reads the URL of `local.remote` (defaulting to `origin`), and reports what the checkout currently has checked out as `local.head_ref`/`local.head_sha`.
+
+It is identity discovery only. Nothing else changes: refs are still resolved with `LsRemote` against the remote, and applying a patch stack still clones into an ephemeral workdir (see Workdir lifecycle). The user's checkout is read, never written, and is not reused as a workdir.
+
+Discovery lives outside the `Client` interface, in `internal/git/local`. It is local, read-only, and needs neither auth nor network, so both access backends would implement it identically; go-git can read a repository's config regardless of which backend is configured for remote operations.
+
+- **Host inference**: `host` is derived from the resolved URL's hostname when the configuration doesn't set one, matching `github.com`/`gitlab.com` plus hostnames beginning `github.`/`gitlab.` for self-hosted instances. An explicit `host` always wins.
+- **SSH remotes**: local checkouts commonly use scp-style (`git@host:owner/repo.git`) or `ssh://` remotes, which token auth cannot use. When a token is available, discovery rewrites the URL to its `https` equivalent; with no token it passes the URL through, since the exec backend can still reach it over SSH. `local.remote_url` reports the URL as git config records it either way, so the rewrite is visible in state rather than silent.
+- **Detached or unborn HEAD**: `local.head_ref` is empty, rather than an error. Both are normal in CI, where `actions/checkout` detaches HEAD for `pull_request` events.
+- **Self-write warning**: pushing to the branch the run is checked out on is legal but leaves the local checkout behind the remote and can retrigger push-driven CI. `git_branch`'s `repository.head_ref` is an advisory input for this: when it is set and matches `name`, and a patch stack is configured, `Create`/`Update` warn. It never changes which branch is pushed, and `Read` doesn't warn, since it pushes nothing and the warning would repeat on every refresh.
+
 ## Access backends
 
 Repository access is pluggable behind a common interface:

@@ -63,6 +63,7 @@ Required:
 Optional:
 
 - `auth` (Attributes) Authentication details used to connect to the repository. (see [below for nested schema](#nestedatt--repository--auth))
+- `head_ref` (String) Branch currently checked out in the working copy this configuration runs from. Set it from `data.git_repository.<name>.local.head_ref` to be warned when applying this resource would rewrite the branch Terraform is running from. Purely advisory: it never changes which branch is pushed.
 - `host` (String) Type of host the repository is on. Must be one of `github`, `gitlab`, or `generic`.
 
 <a id="nestedatt--repository--auth"></a>
