@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.0.4](https://github.com/UnstoppableMango/terraform-provider-git/compare/v0.0.3...v0.0.4) (2026-08-25)
+
+
+### Features
+
+* Point at the current git repository ([#60](https://github.com/UnstoppableMango/terraform-provider-git/issues/60)) ([1342e0c](https://github.com/UnstoppableMango/terraform-provider-git/commit/1342e0c182991afdac04390374942801d9a45024))
+
+
+### Documentation
+
+* doc type distinction ([#58](https://github.com/UnstoppableMango/terraform-provider-git/issues/58)) ([f6a62a0](https://github.com/UnstoppableMango/terraform-provider-git/commit/f6a62a0f82ee55344df7c9156c8a173ccc3124d4))
+* Small tf review ([#56](https://github.com/UnstoppableMango/terraform-provider-git/issues/56)) ([415f2e2](https://github.com/UnstoppableMango/terraform-provider-git/commit/415f2e2a0daa4f88b617549ae5683ab0230254ba))
+
 ## [0.0.3](https://github.com/UnstoppableMango/terraform-provider-git/compare/v0.0.2...v0.0.3) (2026-08-22)
 
 
