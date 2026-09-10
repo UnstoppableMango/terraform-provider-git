@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.5](https://github.com/UnstoppableMango/terraform-provider-git/compare/v0.0.4...v0.0.5) (2026-09-10)
+
+
+### Bug Fixes
+
+* **deps:** update module github.com/onsi/gomega to v1.43.0 ([#65](https://github.com/UnstoppableMango/terraform-provider-git/issues/65)) ([dabdcfc](https://github.com/UnstoppableMango/terraform-provider-git/commit/dabdcfc7133cc7a4e20fae8465d09a2bcccee71d))
+
 ## [0.0.4](https://github.com/UnstoppableMango/terraform-provider-git/compare/v0.0.3...v0.0.4) (2026-08-25)
 
 
