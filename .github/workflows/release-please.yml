@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   release-please:
-    uses: unmango/actions/.github/workflows/release-please.yml@3ec4ed5a6af9c00f6a39e079df488573c77ebda6 # v1.0.1
+    uses: unmango/actions/.github/workflows/release-please.yml@e8bbcbd12a2c521c5cb36957c00a7a8f4fe2e766 # v2.0.0
     with:
       config-file: release-please-config.json
       manifest-file: .release-please-manifest.json
