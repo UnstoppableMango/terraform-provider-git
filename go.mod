@@ -6,7 +6,7 @@ tool github.com/onsi/ginkgo/v2/ginkgo
 
 require (
 	github.com/bluekeyes/go-gitdiff v0.9.0
-	github.com/go-git/go-billy/v5 v5.9.1
+	github.com/go-git/go-billy/v5 v5.9.2
 	github.com/go-git/go-git/v5 v5.19.2
 	github.com/google/go-github/v75 v75.0.0
 	github.com/hashicorp/terraform-plugin-framework v1.19.0
