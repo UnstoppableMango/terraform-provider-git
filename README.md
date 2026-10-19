@@ -6,6 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![built with nix](https://builtwithnix.org/badge.svg)](https://builtwithnix.org)
 [![Latest commit](https://img.shields.io/github/last-commit/UnstoppableMango/terraform-provider-git)](https://github.com/UnstoppableMango/terraform-provider-git/commits/main)
+[![Hercules CI](https://hercules-ci.com/api/v1/site/github/account/UnstoppableMango/project/terraform-provider-git/badge)](https://hercules-ci.com/github/UnstoppableMango/terraform-provider-git)
 
 A [Terraform](https://www.terraform.io/) provider that declares and reconciles the state of a git repository: tracked branches and a quilt-style ordered patch stack applied on top of them.
 
