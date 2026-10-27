@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.6](https://github.com/UnstoppableMango/terraform-provider-git/compare/v0.0.5...v0.0.6) (2026-10-27)
+
+
+### Bug Fixes
+
+* **renovate:** use the proper preset syntax ([#94](https://github.com/UnstoppableMango/terraform-provider-git/issues/94)) ([b6f48fd](https://github.com/UnstoppableMango/terraform-provider-git/commit/b6f48fdd2a564faaf8bee2fb4c7448bc533afcfc))
+
 ## [0.0.5](https://github.com/UnstoppableMango/terraform-provider-git/compare/v0.0.4...v0.0.5) (2026-10-27)
 
 
