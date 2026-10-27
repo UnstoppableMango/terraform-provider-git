@@ -2,6 +2,6 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "github>UnstoppableMango/renovate-config",
-    "github>UnstoppableMango/renovate-config//presets/release-please"
+    "github>UnstoppableMango/renovate-config:release-please"
   ]
 }
