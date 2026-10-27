@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.0.5](https://github.com/UnstoppableMango/terraform-provider-git/compare/v0.0.4...v0.0.5) (2026-10-27)
+
+
+### Bug Fixes
+
+* **deps:** update module github.com/go-git/go-git/v5 to v5.19.3 ([#87](https://github.com/UnstoppableMango/terraform-provider-git/issues/87)) ([5bd5d68](https://github.com/UnstoppableMango/terraform-provider-git/commit/5bd5d68549b428e1473f76ebc69411f776fe974a))
+* **deps:** update module github.com/onsi/ginkgo/v2 to v2.33.1 ([#75](https://github.com/UnstoppableMango/terraform-provider-git/issues/75)) ([5d71e71](https://github.com/UnstoppableMango/terraform-provider-git/commit/5d71e71b13050eebb957679ecfdd00efc0e8b6f1))
+* **deps:** update module github.com/onsi/gomega to v1.43.0 ([#65](https://github.com/UnstoppableMango/terraform-provider-git/issues/65)) ([dabdcfc](https://github.com/UnstoppableMango/terraform-provider-git/commit/dabdcfc7133cc7a4e20fae8465d09a2bcccee71d))
+
+
+### Documentation
+
+* add Hercules CI badge ([#83](https://github.com/UnstoppableMango/terraform-provider-git/issues/83)) ([305b50f](https://github.com/UnstoppableMango/terraform-provider-git/commit/305b50f3a8c620033a130fce05361036fa236a74))
+* configure agent skills ([#93](https://github.com/UnstoppableMango/terraform-provider-git/issues/93)) ([9d6f1a1](https://github.com/UnstoppableMango/terraform-provider-git/commit/9d6f1a1a4f2d365c36ee5c2e2f1d9078c36503ac))
+
+
+### Continuous Integration
+
+* adopt unmango/actions ([#82](https://github.com/UnstoppableMango/terraform-provider-git/issues/82)) ([476623d](https://github.com/UnstoppableMango/terraform-provider-git/commit/476623d46f6ca56a599c3c3308a4e763efb75064))
+
 ## [0.0.4](https://github.com/UnstoppableMango/terraform-provider-git/compare/v0.0.3...v0.0.4) (2026-08-25)
 
 
